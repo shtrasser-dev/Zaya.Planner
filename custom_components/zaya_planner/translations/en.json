@@ -1,0 +1,143 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Zaya Planner",
+        "description": "Add the planner of smart home tasks. Tasks are created with the zaya_planner.upsert action and shown on the “Schedule” calendar."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Zaya Planner is already added."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Zaya Planner settings",
+        "data": {
+          "lateness_hours": "Lateness limit",
+          "action_prefix": "Allowed actions",
+          "retention_days": "Keep finished tasks"
+        },
+        "data_description": {
+          "lateness_hours": "A task without its own `expires` is not run if it is later than this (for example after Home Assistant was off).",
+          "action_prefix": "Only scripts whose entity id starts with this prefix can be tasks, for example script.plan_",
+          "retention_days": "Finished tasks older than this are removed."
+        }
+      }
+    },
+    "error": {
+      "invalid_prefix": "The prefix must start with “script.” and name a group of scripts, for example script.plan_"
+    }
+  },
+  "entity": {
+    "calendar": {
+      "schedule": {
+        "name": "Schedule"
+      }
+    },
+    "sensor": {
+      "next_task": {
+        "name": "Next task"
+      },
+      "errors": {
+        "name": "Errors"
+      },
+      "tasks": {
+        "name": "Plan"
+      }
+    }
+  },
+  "selector": {
+    "status": {
+      "options": {
+        "scheduled": "Scheduled",
+        "running": "Running",
+        "done": "Done",
+        "error": "Error (retrying)",
+        "failed": "Failed",
+        "skipped": "Skipped",
+        "cancelled": "Cancelled"
+      }
+    }
+  },
+  "services": {
+    "upsert": {
+      "name": "Plan a task",
+      "description": "Creates a task or changes it while its due time has not come. A task that is already due is left to the executor.",
+      "fields": {
+        "id": {
+          "name": "ID",
+          "description": "Key of the current task. Among unfinished tasks it is unique: a second upsert with the same id changes the task."
+        },
+        "title": {
+          "name": "Title",
+          "description": "For people only: shown on the calendar and in the plan."
+        },
+        "due": {
+          "name": "Due",
+          "description": "When to run the task. Time without a time zone is local time."
+        },
+        "action": {
+          "name": "Action",
+          "description": "Script to run, for example script.plan_switch. Only scripts with the allowed prefix are accepted."
+        },
+        "params": {
+          "name": "Parameters",
+          "description": "Passed to the script as its data."
+        },
+        "expires": {
+          "name": "Expires",
+          "description": "Do not run after this time. “always” — run however late (use for turning things off). Empty — the lateness limit from the settings."
+        },
+        "rule_id": {
+          "name": "Rule",
+          "description": "Rule that created the task."
+        }
+      }
+    },
+    "remove": {
+      "name": "Cancel tasks",
+      "description": "Cancels the unfinished task with this id, or the rule's tasks that are not due yet.",
+      "fields": {
+        "id": {
+          "name": "ID",
+          "description": "Cancel the unfinished task with this id."
+        },
+        "rule_id": {
+          "name": "Rule",
+          "description": "Cancel the rule's tasks whose due time has not come."
+        }
+      }
+    },
+    "list": {
+      "name": "List tasks",
+      "description": "Returns tasks, optionally filtered.",
+      "fields": {
+        "id": {
+          "name": "ID",
+          "description": "Only tasks with this id."
+        },
+        "rule_id": {
+          "name": "Rule",
+          "description": "Only tasks of this rule."
+        },
+        "status": {
+          "name": "Status",
+          "description": "Only tasks in these statuses."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "not_loaded": {
+      "message": "Zaya Planner is not set up."
+    },
+    "action_not_allowed": {
+      "message": "Action {action} is not allowed: only scripts starting with {prefix} can be tasks."
+    },
+    "expires_before_due": {
+      "message": "“expires” is earlier than “due”: the task could never run."
+    }
+  }
+}

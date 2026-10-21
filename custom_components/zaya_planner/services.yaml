@@ -1,0 +1,64 @@
+upsert:
+  fields:
+    id:
+      required: true
+      example: "floor_heating_morning"
+      selector:
+        text:
+    title:
+      example: "Floor heating"
+      selector:
+        text:
+    due:
+      required: true
+      selector:
+        datetime:
+    action:
+      required: true
+      example: "script.plan_switch"
+      selector:
+        entity:
+          filter:
+            domain: script
+    params:
+      example: '{"entity_id": "switch.floor_heating", "state": "on"}'
+      selector:
+        object:
+    expires:
+      example: "always"
+      selector:
+        text:
+    rule_id:
+      selector:
+        text:
+
+remove:
+  fields:
+    id:
+      selector:
+        text:
+    rule_id:
+      selector:
+        text:
+
+list:
+  fields:
+    id:
+      selector:
+        text:
+    rule_id:
+      selector:
+        text:
+    status:
+      selector:
+        select:
+          multiple: true
+          translation_key: status
+          options:
+            - scheduled
+            - running
+            - done
+            - error
+            - failed
+            - skipped
+            - cancelled

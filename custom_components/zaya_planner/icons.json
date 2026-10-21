@@ -1,0 +1,31 @@
+{
+  "entity": {
+    "calendar": {
+      "schedule": {
+        "default": "mdi:calendar-clock"
+      }
+    },
+    "sensor": {
+      "next_task": {
+        "default": "mdi:clock-outline"
+      },
+      "errors": {
+        "default": "mdi:alert-circle-outline"
+      },
+      "tasks": {
+        "default": "mdi:format-list-checks"
+      }
+    }
+  },
+  "services": {
+    "upsert": {
+      "service": "mdi:calendar-plus"
+    },
+    "remove": {
+      "service": "mdi:calendar-remove"
+    },
+    "list": {
+      "service": "mdi:format-list-bulleted"
+    }
+  }
+}
