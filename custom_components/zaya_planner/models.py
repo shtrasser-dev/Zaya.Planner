@@ -91,23 +91,29 @@ class Task:
         expires = data.get("expires")
         if expires is not None and expires != EXPIRES_ALWAYS:
             expires = _dt_from_str(expires)
+        status = TaskStatus(data.get("status", TaskStatus.SCHEDULED))
+        due = _dt_from_str(data["due"])
+        next_attempt = _dt_from_str(data.get("next_attempt"))
+        if next_attempt is None and status in OPEN_STATUSES:
+            # Saved by a version without the executor: run it when due
+            next_attempt = due
         return cls(
             uid=data["uid"],
             id=data["id"],
             title=data.get("title") or "",
-            due=_dt_from_str(data["due"]),
+            due=due,
             action=data["action"],
             params=data.get("params") or {},
             expires=expires,
             rule_id=data.get("rule_id"),
-            status=TaskStatus(data.get("status", TaskStatus.SCHEDULED)),
+            status=status,
             attempts=data.get("attempts", 0),
             last_error=data.get("last_error"),
             result=data.get("result"),
             created_at=_dt_from_str(data.get("created_at")) or dt_util.utcnow(),
             updated_at=_dt_from_str(data.get("updated_at")) or dt_util.utcnow(),
             finished_at=_dt_from_str(data.get("finished_at")),
-            next_attempt=_dt_from_str(data.get("next_attempt")),
+            next_attempt=next_attempt,
             error_since=_dt_from_str(data.get("error_since")),
             notified=data.get("notified", False),
         )

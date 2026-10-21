@@ -303,3 +303,30 @@ async def test_restart_during_attempt_retries(
     assert task["status"] == "done"
     assert task["attempts"] == 2
     assert len(script.calls) == 1
+
+
+async def test_task_saved_by_older_version_runs(
+    hass: HomeAssistant, config_entry: MockConfigEntry, frozen_now, hass_storage, script
+) -> None:
+    """A task saved before the executor existed (no next_attempt) still runs."""
+    hass_storage[STORAGE_KEY] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": STORAGE_KEY,
+        "data": {
+            "tasks": [
+                {
+                    "uid": "u1",
+                    "id": "t",
+                    "due": "2026-10-21T11:58:00+00:00",
+                    "action": "script.plan_switch",
+                    "status": "scheduled",
+                }
+            ]
+        },
+    }
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert (await get_task(hass))["status"] == "done"
