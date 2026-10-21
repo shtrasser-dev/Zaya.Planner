@@ -6,11 +6,7 @@ from datetime import datetime
 import json
 from typing import override
 
-from homeassistant.components.calendar import (
-    CalendarEntity,
-    CalendarEvent,
-    CalendarEventStatus,
-)
+from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
@@ -41,7 +37,10 @@ def _event_end(task: Task) -> datetime:
 
 
 class ZayaPlannerCalendar(ZayaPlannerEntity, CalendarEntity):
-    """All tasks of the schedule, planned and recently finished."""
+    """Tasks of the schedule, planned and recently finished.
+
+    Cancelled tasks are not shown: a calendar does not return cancelled events.
+    """
 
     _entity_platform = "calendar"
 
@@ -67,7 +66,9 @@ class ZayaPlannerCalendar(ZayaPlannerEntity, CalendarEntity):
         return [
             self._event(task)
             for task in self.manager.tasks
-            if task.due < end_date and _event_end(task) > start_date
+            if task.status != TaskStatus.CANCELLED
+            and task.due < end_date
+            and _event_end(task) > start_date
         ]
 
     def _event(self, task: Task) -> CalendarEvent:
@@ -87,7 +88,4 @@ class ZayaPlannerCalendar(ZayaPlannerEntity, CalendarEntity):
             summary=task.display_title,
             description="\n".join(lines),
             uid=task.uid,
-            status=CalendarEventStatus.CANCELLED
-            if task.status == TaskStatus.CANCELLED
-            else CalendarEventStatus.CONFIRMED,
         )

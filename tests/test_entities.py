@@ -56,7 +56,7 @@ async def test_sensors_follow_tasks(
 async def test_calendar_events(
     hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now
 ) -> None:
-    """Every task is an event; the calendar is on while a task's event lasts."""
+    """Every task but cancelled ones is an event; the calendar is on during it."""
     await upsert(
         hass,
         id="a",
@@ -84,7 +84,7 @@ async def test_calendar_events(
         return_response=True,
     )
     events = response[CALENDAR]["events"]
-    assert [event["summary"] for event in events] == ["Floor heating", "b"]
+    assert [event["summary"] for event in events] == ["Floor heating"]
     assert "script.plan_switch" in events[0]["description"]
     assert '{"state": "on"}' in events[0]["description"]
 
