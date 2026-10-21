@@ -8,7 +8,7 @@ from typing import Any
 
 from homeassistant.util import dt as dt_util
 
-from .const import EXPIRES_ALWAYS, OPEN_STATUSES, TaskStatus
+from .const import EXPIRES_ALWAYS, OPEN_STATUSES, Repeat, TaskStatus
 
 
 def _dt_to_str(value: datetime | None) -> str | None:
@@ -116,4 +116,56 @@ class Task:
             next_attempt=next_attempt,
             error_since=_dt_from_str(data.get("error_since")),
             notified=data.get("notified", False),
+        )
+
+
+@dataclass(slots=True, frozen=True)
+class Rule:
+    """A rule as the user set it up (a config subentry)."""
+
+    rule_id: str
+    title: str
+    planner: str
+    params: dict[str, Any]
+    repeat: Repeat
+    # "HH:MM" or "HH:MM:SS", local time; for hourly rules only the minute counts
+    time: str
+    enabled: bool
+
+    @property
+    def schedule(self) -> str:
+        """Return what decides the run times (a change means new next_run)."""
+        return f"{self.repeat} {self.time}"
+
+
+@dataclass(slots=True)
+class RuleState:
+    """What happened with a rule: kept in the task store."""
+
+    next_run: datetime | None = None
+    last_run: datetime | None = None
+    # "ok" or "error"
+    last_result: str | None = None
+    last_error: str | None = None
+    schedule: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable representation."""
+        return {
+            "next_run": _dt_to_str(self.next_run),
+            "last_run": _dt_to_str(self.last_run),
+            "last_result": self.last_result,
+            "last_error": self.last_error,
+            "schedule": self.schedule,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RuleState:
+        """Restore a state saved with as_dict."""
+        return cls(
+            next_run=_dt_from_str(data.get("next_run")),
+            last_run=_dt_from_str(data.get("last_run")),
+            last_result=data.get("last_result"),
+            last_error=data.get("last_error"),
+            schedule=data.get("schedule"),
         )

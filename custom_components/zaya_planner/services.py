@@ -32,6 +32,7 @@ from .const import (
     EXPIRES_ALWAYS,
     SERVICE_LIST,
     SERVICE_REMOVE,
+    SERVICE_RUN_RULE,
     SERVICE_UPSERT,
     TaskStatus,
 )
@@ -69,6 +70,8 @@ LIST_SCHEMA = probatio.Schema(
     }
 )
 
+RUN_RULE_SCHEMA = probatio.Schema({probatio.Required(ATTR_RULE_ID): cv.string})
+
 
 def _get_manager(hass: HomeAssistant) -> tuple[TaskManager, str]:
     """Return the task manager and the allowed action prefix."""
@@ -79,7 +82,7 @@ def _get_manager(hass: HomeAssistant) -> tuple[TaskManager, str]:
         )
     entry = entries[0]
     prefix = entry.options.get(CONF_ACTION_PREFIX, DEFAULT_ACTION_PREFIX)
-    return entry.runtime_data, prefix
+    return entry.runtime_data.manager, prefix
 
 
 async def _async_upsert(call: ServiceCall) -> ServiceResponse:
@@ -112,7 +115,7 @@ async def _async_upsert(call: ServiceCall) -> ServiceResponse:
     )
     if not call.return_response:
         return None
-    return {"result": str(result), "task": task.as_dict()}
+    return {"result": str(result), "task": task.as_dict() if task else None}
 
 
 async def _async_remove(call: ServiceCall) -> ServiceResponse:
@@ -134,6 +137,22 @@ async def _async_list(call: ServiceCall) -> ServiceResponse:
         statuses=[TaskStatus(status) for status in statuses] if statuses else None,
     )
     return {ATTR_TASKS: [task.as_dict() for task in tasks]}
+
+
+async def _async_run_rule(call: ServiceCall) -> ServiceResponse:
+    _get_manager(call.hass)
+    entry = call.hass.config_entries.async_loaded_entries(DOMAIN)[0]
+    outcome = await entry.runtime_data.rules.async_run_now(call.data[ATTR_RULE_ID])
+    if outcome is None:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="unknown_rule",
+            translation_placeholders={"rule_id": call.data[ATTR_RULE_ID]},
+        )
+    if not call.return_response:
+        return None
+    ok, reason = outcome
+    return {"ok": ok, "reason": reason}
 
 
 @callback
@@ -159,4 +178,11 @@ def async_setup_services(hass: HomeAssistant) -> None:
         _async_list,
         schema=LIST_SCHEMA,
         supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RUN_RULE,
+        _async_run_rule,
+        schema=RUN_RULE_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
     )

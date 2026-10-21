@@ -25,7 +25,7 @@ from .const import (
     UpsertResult,
 )
 from .messages import message
-from .models import Task
+from .models import RuleState, Task
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,12 +65,18 @@ class TaskManager:
             hass, STORAGE_VERSION, STORAGE_KEY, atomic_writes=True
         )
         self._tasks: dict[str, Task] = {}
+        # What happened with each rule, by rule id
+        self.rule_states: dict[str, RuleState] = {}
 
     async def async_load(self) -> None:
         """Load tasks from disk."""
         data = await self._store.async_load() or {}
         tasks = (Task.from_dict(item) for item in data.get("tasks", []))
         self._tasks = {task.uid: task for task in tasks}
+        self.rule_states = {
+            rule_id: RuleState.from_dict(state)
+            for rule_id, state in data.get("rules", {}).items()
+        }
 
     @property
     def tasks(self) -> list[Task]:
@@ -105,7 +111,9 @@ class TaskManager:
             and (wanted is None or task.status in wanted)
         ]
 
-    async def async_upsert(self, definition: TaskDefinition) -> tuple[Task, UpsertResult]:
+    async def async_upsert(
+        self, definition: TaskDefinition
+    ) -> tuple[Task | None, UpsertResult]:
         """Create the task, or change it while its due time has not come.
 
         An open task whose due time has come belongs to the executor and is
@@ -118,6 +126,12 @@ class TaskManager:
             expires = as_aware(expires)
 
         task = self.get_open(definition.id)
+        if definition.rule_id is not None and due <= now and task is None:
+            # A rule plans only the future: a moment that has passed is skipped
+            _LOGGER.debug(
+                "Rule %s: task %s is in the past", definition.rule_id, definition.id
+            )
+            return None, UpsertResult.PAST
         if task is not None and task.due <= now:
             self.log(
                 message(
@@ -205,6 +219,12 @@ class TaskManager:
 
     async def _async_changed(self) -> None:
         await self._store.async_save(
-            {"tasks": [task.as_dict() for task in self._tasks.values()]}
+            {
+                "tasks": [task.as_dict() for task in self._tasks.values()],
+                "rules": {
+                    rule_id: state.as_dict()
+                    for rule_id, state in self.rule_states.items()
+                },
+            }
         )
         async_dispatcher_send(self.hass, f"{SIGNAL_TASKS_UPDATED}_{self._entry_id}")

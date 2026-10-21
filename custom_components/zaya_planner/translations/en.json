@@ -48,6 +48,9 @@
       },
       "tasks": {
         "name": "Plan"
+      },
+      "rules": {
+        "name": "Rules"
       }
     }
   },
@@ -62,12 +65,20 @@
         "skipped": "Skipped",
         "cancelled": "Cancelled"
       }
+    },
+    "repeat": {
+      "options": {
+        "daily": "Every day",
+        "weekdays": "On weekdays",
+        "weekends": "At weekends",
+        "hourly": "Every hour"
+      }
     }
   },
   "services": {
     "upsert": {
       "name": "Plan a task",
-      "description": "Creates a task or changes it while its due time has not come. A task that is already due is left to the executor.",
+      "description": "Creates a task or changes it while its due time has not come. A task that is already due is left to the executor. A task of a rule (with rule_id) in the past is not created: rules plan only the future.",
       "fields": {
         "id": {
           "name": "ID",
@@ -130,6 +141,16 @@
           "description": "Only tasks in these statuses."
         }
       }
+    },
+    "run_rule": {
+      "name": "Run rule",
+      "description": "Runs a rule now; its schedule stays as it is.",
+      "fields": {
+        "rule_id": {
+          "name": "Rule",
+          "description": "ID of the rule."
+        }
+      }
     }
   },
   "exceptions": {
@@ -141,6 +162,63 @@
     },
     "expires_before_due": {
       "message": "“expires” is earlier than “due”: the task could never run."
+    },
+    "unknown_rule": {
+      "message": "There is no rule {rule_id}."
+    }
+  },
+  "config_subentries": {
+    "rule": {
+      "initiate_flow": {
+        "user": "Add rule"
+      },
+      "entry_type": "Rule",
+      "step": {
+        "user": {
+          "title": "New rule",
+          "description": "At the chosen time the rule calls its planner script with the parameters and rule_id. The planner works out the tasks and creates them with zaya_planner.upsert (passing the same rule_id).",
+          "data": {
+            "rule_id": "Rule ID",
+            "title": "Title",
+            "planner": "Planner script",
+            "params": "Parameters",
+            "repeat": "Repeat",
+            "time": "Time",
+            "enabled": "Enabled"
+          },
+          "data_description": {
+            "rule_id": "Latin letters, digits and _; cannot be changed later. Tasks of the rule carry it in rule_id.",
+            "planner": "A script with the allowed prefix (see the integration settings) that answers ok and reason.",
+            "params": "Passed to the planner together with rule_id.",
+            "time": "Local time. For “Every hour” only the minutes count.",
+            "enabled": "A disabled rule does not run; tasks it already planned stay."
+          }
+        },
+        "reconfigure": {
+          "title": "Rule {rule_id}",
+          "description": "Changing the repeat or the time plans the next run anew.",
+          "data": {
+            "title": "Title",
+            "planner": "Planner script",
+            "params": "Parameters",
+            "repeat": "Repeat",
+            "time": "Time",
+            "enabled": "Enabled"
+          },
+          "data_description": {
+            "planner": "A script with the allowed prefix (see the integration settings) that answers ok and reason.",
+            "params": "Passed to the planner together with rule_id.",
+            "time": "Local time. For “Every hour” only the minutes count.",
+            "enabled": "A disabled rule does not run; tasks it already planned stay."
+          }
+        }
+      },
+      "error": {
+        "invalid_rule_id": "Use only Latin letters, digits and _",
+        "rule_id_exists": "A rule with this ID already exists",
+        "planner_not_allowed": "The planner must be a script with the allowed prefix (see the integration settings)",
+        "invalid_params": "Parameters must be a mapping (key: value)"
+      }
     }
   }
 }

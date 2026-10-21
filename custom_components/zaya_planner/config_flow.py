@@ -11,26 +11,44 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlowWithReload,
+    ConfigSubentryFlow,
+    OptionsFlow,
+    SubentryFlowResult,
 )
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    BooleanSelector,
+    EntitySelector,
+    EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    ObjectSelector,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
+    TimeSelector,
 )
 
 from .const import (
     CONF_ACTION_PREFIX,
+    CONF_ENABLED,
     CONF_LATENESS_HOURS,
     CONF_NOTIFY_ACTION,
+    CONF_PARAMS,
+    CONF_PLANNER,
+    CONF_REPEAT,
     CONF_RETENTION_DAYS,
+    CONF_RULE_ID,
+    CONF_TIME,
     DEFAULT_ACTION_PREFIX,
     DEFAULT_LATENESS_HOURS,
     DEFAULT_NOTIFY_ACTION,
     DEFAULT_RETENTION_DAYS,
     DOMAIN,
+    SUBENTRY_RULE,
+    Repeat,
 )
 
 DEFAULT_OPTIONS: dict[str, Any] = {
@@ -100,8 +118,17 @@ class ZayaPlannerConfigFlow(ConfigFlow, domain=DOMAIN):
         """Return the options flow."""
         return ZayaPlannerOptionsFlow()
 
+    @classmethod
+    @callback
+    @override
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        """Rules are added and edited as subentries."""
+        return {SUBENTRY_RULE: RuleSubentryFlow}
 
-class ZayaPlannerOptionsFlow(OptionsFlowWithReload):
+
+class ZayaPlannerOptionsFlow(OptionsFlow):
     """Change the settings of Zaya Planner."""
 
     async def async_step_init(
@@ -126,3 +153,119 @@ class ZayaPlannerOptionsFlow(OptionsFlowWithReload):
         return self.async_show_form(
             step_id="init", data_schema=_options_schema(options), errors=errors
         )
+
+
+CONF_TITLE = "title"
+# Rule ids end up in tasks and automations: keep them simple
+RULE_ID_RE = re.compile(r"^[a-z0-9_]+$")
+
+RULE_DEFAULTS: dict[str, Any] = {
+    CONF_REPEAT: Repeat.DAILY,
+    CONF_TIME: "20:00:00",
+    CONF_ENABLED: True,
+}
+
+
+def _rule_schema(*, with_id: bool) -> probatio.Schema:
+    fields: dict[Any, Any] = {}
+    if with_id:
+        fields[probatio.Required(CONF_RULE_ID)] = TextSelector()
+    fields.update(
+        {
+            probatio.Required(CONF_TITLE): TextSelector(),
+            probatio.Required(CONF_PLANNER): EntitySelector(
+                EntitySelectorConfig(domain="script")
+            ),
+            probatio.Optional(CONF_PARAMS): ObjectSelector(),
+            probatio.Required(CONF_REPEAT): SelectSelector(
+                SelectSelectorConfig(
+                    options=[repeat.value for repeat in Repeat],
+                    translation_key="repeat",
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            probatio.Required(CONF_TIME): TimeSelector(),
+            probatio.Required(CONF_ENABLED): BooleanSelector(),
+        }
+    )
+    return probatio.Schema(fields)
+
+
+class RuleSubentryFlow(ConfigSubentryFlow):
+    """Add or change a rule."""
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Add a rule."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            rule_id = user_input[CONF_RULE_ID].strip()
+            if not RULE_ID_RE.match(rule_id):
+                errors[CONF_RULE_ID] = "invalid_rule_id"
+            elif any(
+                sub.data.get(CONF_RULE_ID) == rule_id
+                for sub in self._get_entry().subentries.values()
+            ):
+                errors[CONF_RULE_ID] = "rule_id_exists"
+            errors.update(self._validate(user_input))
+            if not errors:
+                return self.async_create_entry(
+                    title=user_input[CONF_TITLE].strip(),
+                    data={CONF_RULE_ID: rule_id, **self._rule_data(user_input)},
+                    unique_id=rule_id,
+                )
+        return self.async_show_form(
+            step_id="user",
+            data_schema=self.add_suggested_values_to_schema(
+                _rule_schema(with_id=True), user_input or RULE_DEFAULTS
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Change a rule (its id stays)."""
+        subentry = self._get_reconfigure_subentry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            errors = self._validate(user_input)
+            if not errors:
+                return self.async_update_and_abort(
+                    self._get_entry(),
+                    subentry,
+                    title=user_input[CONF_TITLE].strip(),
+                    data={
+                        CONF_RULE_ID: subentry.data[CONF_RULE_ID],
+                        **self._rule_data(user_input),
+                    },
+                )
+        suggested = user_input or {CONF_TITLE: subentry.title, **subentry.data}
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                _rule_schema(with_id=False), suggested
+            ),
+            errors=errors,
+            description_placeholders={"rule_id": subentry.data[CONF_RULE_ID]},
+        )
+
+    def _validate(self, user_input: dict[str, Any]) -> dict[str, str]:
+        errors: dict[str, str] = {}
+        prefix = self._get_entry().options.get(CONF_ACTION_PREFIX, DEFAULT_ACTION_PREFIX)
+        if not user_input[CONF_PLANNER].startswith(prefix):
+            errors[CONF_PLANNER] = "planner_not_allowed"
+        if not isinstance(user_input.get(CONF_PARAMS) or {}, dict):
+            errors[CONF_PARAMS] = "invalid_params"
+        return errors
+
+    @staticmethod
+    def _rule_data(user_input: dict[str, Any]) -> dict[str, Any]:
+        return {
+            CONF_PLANNER: user_input[CONF_PLANNER],
+            CONF_PARAMS: dict(user_input.get(CONF_PARAMS) or {}),
+            CONF_REPEAT: user_input[CONF_REPEAT],
+            CONF_TIME: user_input[CONF_TIME],
+            CONF_ENABLED: user_input[CONF_ENABLED],
+        }

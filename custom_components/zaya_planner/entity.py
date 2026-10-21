@@ -24,6 +24,7 @@ class ZayaPlannerEntity(Entity):
 
     def __init__(self, entry: ConfigEntry, manager: TaskManager, key: str) -> None:
         """Initialize the entity."""
+        self.entry = entry
         self.manager = manager
         self._entry_id = entry.entry_id
         self._attr_translation_key = key

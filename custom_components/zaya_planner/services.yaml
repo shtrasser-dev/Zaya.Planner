@@ -62,3 +62,11 @@ list:
             - failed
             - skipped
             - cancelled
+
+run_rule:
+  fields:
+    rule_id:
+      required: true
+      example: "floor_heating"
+      selector:
+        text:

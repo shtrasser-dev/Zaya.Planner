@@ -7,33 +7,29 @@ Failed attempts are retried with pauses until the task expires.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timedelta
 import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_LATENESS_HOURS,
-    CONF_NOTIFY_ACTION,
     DEFAULT_LATENESS_HOURS,
-    DEFAULT_NOTIFY_ACTION,
     DOMAIN,
     ERROR_NOTIFY_AFTER,
     EVENT_TASK_DONE,
     EVENT_TASK_FAILED,
     EXPIRES_ALWAYS,
     RETRY_DELAYS,
-    SCRIPT_TIMEOUT,
     SIGNAL_TASKS_UPDATED,
     TaskStatus,
 )
+from .calls import async_call_script, async_notify
 from .messages import message
 from .models import Task
 from .store import TaskManager
@@ -136,7 +132,9 @@ class Executor:
             task.updated_at = dt_util.utcnow()
             await self.manager.async_save()
 
-            ok, reason, response = await self._async_call(task)
+            ok, reason, response = await async_call_script(
+                self.hass, task.action, dict(task.params)
+            )
 
             if task.status != TaskStatus.RUNNING:
                 # Cancelled while the script was running: leave it cancelled
@@ -157,34 +155,6 @@ class Executor:
             return task.expires
         hours = self.entry.options.get(CONF_LATENESS_HOURS, DEFAULT_LATENESS_HOURS)
         return task.due + timedelta(hours=hours)
-
-    async def _async_call(self, task: Task) -> tuple[bool, str, Any]:
-        """Call the task's script; return (ok, reason, response)."""
-        domain, _, service = task.action.partition(".")
-        if not self.hass.services.has_service(domain, service):
-            return False, self._text("reason_not_found", action=task.action), None
-        try:
-            async with asyncio.timeout(SCRIPT_TIMEOUT.total_seconds()):
-                response = await self.hass.services.async_call(
-                    domain,
-                    service,
-                    dict(task.params),
-                    blocking=True,
-                    return_response=True,
-                )
-        except TimeoutError:
-            seconds = int(SCRIPT_TIMEOUT.total_seconds())
-            return False, self._text("reason_timeout", seconds=seconds), None
-        except HomeAssistantError as err:
-            return False, str(err) or type(err).__name__, None
-        except Exception as err:  # noqa: BLE001 - a script may fail in any way
-            _LOGGER.exception("Task %s: script %s failed", task.id, task.action)
-            return False, str(err) or type(err).__name__, None
-
-        if not isinstance(response, dict) or "ok" not in response:
-            return False, self._text("reason_no_ok"), response
-        reason = str(response.get("reason") or "") or self._text("reason_unknown")
-        return bool(response["ok"]), reason, response
 
     async def _async_done(self, task: Task, response: Any) -> None:
         now = dt_util.utcnow()
@@ -242,7 +212,9 @@ class Executor:
                 self._text("error", title=task.display_title, reason=reason, next=next_text)
             )
         if notify:
-            await self._async_notify(
+            await async_notify(
+                self.hass,
+                self.entry,
                 self._text("notify_title_error"),
                 self._text(
                     "notify_error", title=task.display_title, reason=reason, next=next_text
@@ -277,21 +249,12 @@ class Executor:
             EVENT_TASK_FAILED,
             {**self._event_data(task), "status": str(status), "reason": reason},
         )
-        await self._async_notify(
+        await async_notify(
+            self.hass,
+            self.entry,
             self._text(f"notify_title_{kind}"),
             self._text("notify_closed", title=task.display_title, reason=reason),
         )
-
-    async def _async_notify(self, title: str, text: str) -> None:
-        """Send a notification with the configured action."""
-        action = self.entry.options.get(CONF_NOTIFY_ACTION, DEFAULT_NOTIFY_ACTION)
-        domain, _, service = (action or "persistent_notification.create").partition(".")
-        try:
-            await self.hass.services.async_call(
-                domain, service, {"title": title, "message": text}, blocking=False
-            )
-        except HomeAssistantError as err:
-            _LOGGER.warning("Could not send notification with %s: %s", action, err)
 
     def _event_data(self, task: Task) -> dict[str, Any]:
         return {
