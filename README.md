@@ -1,133 +1,136 @@
 # Zaya Planner
 
-*Home Assistant integration that plans smart home tasks and runs them reliably.*
+A Home Assistant integration that plans smart home tasks and runs them reliably:
+it calls a script when a task is due, waits for the script to confirm, retries on failure
+and reports what went wrong. Everything planned is shown on the “Schedule” calendar and in sensors.
 
-Интеграция Home Assistant, которая планирует задачи умного дома и надёжно их выполняет:
-в срок вызывает скрипт, дожидается подтверждения, при неудаче повторяет и сообщает об ошибке.
-Всё, что запланировано, видно в календаре «Расписание» и в сенсорах.
+> **Status: stage 1 of 6.** The task store, the `upsert` / `remove` / `list` actions,
+> the calendar and the sensors are done. The executor (running tasks when due) and rules
+> come next, see [Roadmap](#roadmap).
 
-> **Состояние: этап 1 из 6.** Готовы хранилище задач, действия `upsert` / `remove` / `list`,
-> календарь и сенсоры. Исполнитель (запуск задач в срок) и правила — следующие этапы, см. [План](#план).
+## How it works
 
-## Как это устроено
+- **Task**: “at this time run this script with these parameters”.
+  Tasks are created with the `zaya_planner.upsert` action from an automation, a script or (later) a rule.
+- **Rule** (stage 3): a declarative description of when and what to plan. Once a day
+  (or on weekdays, at weekends, every hour) it calls a planner script that works out the tasks.
+- **Executor** (stage 2): part of the integration. When a task is due it calls the task's script,
+  waits for its `{ok, reason}` response, retries with pauses, closes the task and logs the outcome.
 
-- **Задача** — «в такое-то время выполнить такой-то скрипт с такими-то параметрами».
-  Задачи создаются действием `zaya_planner.upsert` — из автоматизации, скрипта или (позже) правилом.
-- **Правило** (этап 3) — декларативное описание «когда и что планировать»: раз в сутки
-  (или по будням, по выходным, раз в час) вызывает скрипт-планировщик, который считает задачи.
-- **Исполнитель** (этап 2) — внутри интеграции: в срок вызывает скрипт задачи, ждёт ответ
-  `{ok, reason}`, повторяет с паузами, закрывает задачу и пишет итог в журнал.
+Tasks are kept in `.storage/zaya_planner.tasks` and written to disk **immediately** on every change,
+so after a restart Home Assistant carries on exactly where it stopped.
 
-Задачи хранятся в `.storage/zaya_planner.tasks` и записываются **сразу** при каждом изменении,
-поэтому после перезапуска HA планировщик продолжает с того же места.
+## Installation
 
-## Установка
+Install with HACS as a custom repository:
 
-Через HACS как пользовательский репозиторий:
+1. HACS → ⋮ → **Custom repositories** → `https://github.com/shtrasser-dev/Zaya.Planner`, type **Integration**.
+2. Find **Zaya Planner**, download it and restart Home Assistant.
+3. **Settings → Devices & services → Add integration → Zaya Planner.**
 
-1. HACS → ⋮ → **Пользовательские репозитории** → `https://github.com/shtrasser-dev/Zaya.Planner`, тип **Integration**.
-2. Найти **Zaya Planner**, скачать, перезапустить Home Assistant.
-3. **Настройки → Устройства и службы → Добавить интеграцию → Zaya Planner.**
+Requires Home Assistant 2026.10 or newer.
 
-Нужен Home Assistant 2026.10 или новее.
+### Settings
 
-### Настройки
+**Settings → Devices & services → Zaya Planner → Configure:**
 
-**Настройки → Устройства и службы → Zaya Planner → Настроить:**
-
-| Настройка | По умолчанию | Что значит |
+| Setting | Default | Meaning |
 |---|---|---|
-| Предел опоздания | 5 ч | Задача без своего `expires` не выполняется, если опоздала больше (например, HA был выключен) |
-| Разрешённые действия | `script.plan_` | Задачей может быть только скрипт с таким началом entity id |
-| Хранить выполненные задачи | 3 дня | Более старые выполненные задачи удаляются |
+| Lateness limit | 5 h | A task without its own `expires` is not run if it is later than this (for example after Home Assistant was off) |
+| Allowed actions | `script.plan_` | Only scripts whose entity id starts with this prefix can be tasks |
+| Keep finished tasks | 3 days | Older finished tasks are removed |
 
-## Задача
+## Task
 
-| Поле | Что это |
+| Field | Meaning |
 |---|---|
-| `id` | Ключ **текущей** задачи. Среди невыполненных уникален; выполненные с тем же id остаются в истории |
-| `title` | Название для человека (календарь, план) |
-| `due` | Когда выполнить. Время без часового пояса — местное |
-| `action` | Скрипт, например `script.plan_switch` (только с разрешённым префиксом) |
-| `params` | Передаются скрипту как `data` |
-| `expires` | Не выполнять после этого времени; `always` — выполнить при любом опоздании (для выключений); пусто — предел опоздания из настроек |
-| `rule_id` | Правило, создавшее задачу |
-| `status` | `scheduled` запланирована · `running` выполняется · `done` выполнена · `error` ошибка (повтор) · `failed` не выполнена · `skipped` пропущена · `cancelled` отменена |
-| `attempts`, `last_error`, `result`, `finished_at` | Заполняет исполнитель |
+| `id` | Key of the **current** task. Unique among unfinished tasks; finished tasks with the same id stay in history |
+| `title` | Name for people (calendar, plan) |
+| `due` | When to run. A time without a time zone is local time |
+| `action` | Script to run, e.g. `script.plan_switch` (only with the allowed prefix) |
+| `params` | Passed to the script as its `data` |
+| `expires` | Do not run after this time; `always`: run however late (for turning things off); empty: the lateness limit from the settings |
+| `rule_id` | Rule that created the task |
+| `status` | `scheduled` · `running` · `done` · `error` (retrying) · `failed` · `skipped` · `cancelled` |
+| `attempts`, `last_error`, `result`, `finished_at` | Filled in by the executor |
 
-## Действия
+## Actions
 
-### `zaya_planner.upsert` — запланировать задачу
+### `zaya_planner.upsert`: plan a task
 
-- невыполненной задачи с таким `id` нет — создаётся новая;
-- есть, и срок не наступил — меняется;
-- есть, и срок уже наступил — **не трогается** (она у исполнителя); об этом пишется в журнал,
-  а в ответе `result: locked`.
+- no unfinished task with this `id`: a new task is created;
+- there is one and it is not due yet: it is changed;
+- there is one and it is already due: it is **left alone** (it belongs to the executor);
+  this is written to the logbook and the response has `result: locked`.
 
 ```yaml
 action: zaya_planner.upsert
 data:
   id: floor_heating_on
-  title: Тёплый пол — включить
+  title: Floor heating on
   due: "2026-10-22 06:40:00"
   action: script.plan_switch
   params:
     entity_id: switch.floor_heating
     state: "on"
-response_variable: r   # необязательно: {result: created|updated|locked, task: {...}}
+response_variable: r   # optional: {result: created|updated|locked, task: {...}}
 ```
 
-### `zaya_planner.remove` — отменить задачи
+### `zaya_planner.remove`: cancel tasks
 
-- `id` — отменить невыполненную задачу с этим id (в любом состоянии);
-- `rule_id` — отменить задачи правила, чей срок ещё не наступил.
+- `id`: cancel the unfinished task with this id, whatever its state;
+- `rule_id`: cancel the rule's tasks that are not due yet.
 
-Отменённые задачи остаются в истории со статусом `cancelled`. Ответ: `{cancelled: [id, …]}`.
+Cancelled tasks stay in history with status `cancelled`. Response: `{cancelled: [id, …]}`.
 
-### `zaya_planner.list` — список задач
+### `zaya_planner.list`: list tasks
 
-Фильтры `id`, `rule_id`, `status` (один или список). Возвращает `{tasks: [...]}` по порядку срока.
+Filters: `id`, `rule_id`, `status` (one or a list). Returns `{tasks: [...]}` ordered by due time.
 
-## Сущности
+## Entities
 
-| Сущность | Что показывает |
+| Entity | Shows |
 |---|---|
-| `calendar.zaya_planner_schedule` «Расписание» | Событие на каждую задачу — запланированные и недавно выполненные (отменённые не показываются) |
-| `sensor.zaya_planner_next_task` «Следующая задача» | Время ближайшей запланированной задачи; в атрибутах — что это за задача |
-| `sensor.zaya_planner_errors` «Ошибки» | Сколько задач в ошибке или не выполнено; список — в атрибуте `tasks` |
-| `sensor.zaya_planner_tasks` «План» | Сколько задач не выполнено; **все** задачи — в атрибуте `tasks` |
+| `calendar.zaya_planner_schedule` “Schedule” | An event per task: planned and recently finished (cancelled tasks are not shown) |
+| `sensor.zaya_planner_next_task` “Next task” | Due time of the next planned task; the task itself in attributes |
+| `sensor.zaya_planner_errors` “Errors” | Number of tasks in error or failed; the list in the `tasks` attribute |
+| `sensor.zaya_planner_tasks` “Plan” | Number of unfinished tasks; **all** tasks in the `tasks` attribute |
 
-Карточка «План» на markdown:
+Entity ids do not depend on the language of Home Assistant. Names, statuses and messages
+are translated (English and Russian).
+
+A “Plan” markdown card:
 
 ```yaml
 type: markdown
-title: План
+title: Plan
 content: >-
   {% for t in state_attr('sensor.zaya_planner_tasks', 'tasks') or [] %}
-  - **{{ as_timestamp(t.due) | timestamp_custom('%d.%m %H:%M') }}** {{ t.title or t.id }} — {{ t.status_text }}
+  - **{{ as_timestamp(t.due) | timestamp_custom('%d.%m %H:%M') }}** {{ t.title or t.id }}: {{ t.status_text }}
   {% endfor %}
 ```
 
-## План
+## Roadmap
 
-1. ✅ Каркас, хранилище, `upsert` / `remove` / `list`, календарь, сенсоры.
-2. Исполнитель: запуск в срок, ожидание ответа скрипта, повторы, уведомления, события
-   `zaya_planner_task_done` / `zaya_planner_task_failed`, журнал.
-3. Правила: `repeat` (daily / weekdays / weekends / hourly), догон пропусков, событие `zaya_planner_rule_run`.
-4. Тестовый Home Assistant, установка через HACS.
-5. Перенос задач на боевой дом постепенно.
-6. По желанию — своя Lovelace-карточка.
+1. ✅ Skeleton, task store, `upsert` / `remove` / `list`, calendar, sensors.
+2. Executor: running tasks when due, waiting for the script's response, retries, notifications,
+   `zaya_planner_task_done` / `zaya_planner_task_failed` events, logbook.
+3. Rules: `repeat` (daily / weekdays / weekends / hourly), catching up missed runs, `zaya_planner_rule_run` event.
+4. A test Home Assistant instance, installation through HACS.
+5. Moving real tasks over, one at a time.
+6. Optionally, a custom Lovelace card.
 
-## Разработка
+## Development
 
-Тесты — `pytest` + [pytest-homeassistant-custom-component](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component),
-идут в GitHub Actions при каждом push (Home Assistant не работает под Windows). Локально, на Linux или macOS с Python 3.14:
+Tests use `pytest` and [pytest-homeassistant-custom-component](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component)
+and run in GitHub Actions on every push (Home Assistant does not run on Windows).
+Locally, on Linux or macOS with Python 3.14:
 
 ```bash
 pip install -r requirements_test.txt
 pytest
 ```
 
-## Лицензия
+## License
 
 [MIT](LICENSE)
