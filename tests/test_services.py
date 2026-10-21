@@ -246,3 +246,82 @@ async def test_builtin_action_is_allowed(
         params={"entity_id": ["switch.floor"], "state": "on"},
     )
     assert response["result"] == "created"
+
+
+async def test_due_from_entity_with_offset(
+    hass: HomeAssistant, setup_entry: MockConfigEntry
+) -> None:
+    """The due time can be the time of an entity (e.g. the next sunset) plus an offset."""
+    hass.states.async_set("sensor.sun_next_setting", "2026-10-21T14:31:00+00:00")
+    response = await upsert(
+        hass,
+        id="t",
+        due_entity="sensor.sun_next_setting",
+        offset=30,
+        devices=["switch.gate"],
+        state="on",
+    )
+    task = response["task"]
+    assert task["due"] == "2026-10-21T15:01:00+00:00"
+    assert task["action"] == "zaya_planner.ensure_state"
+    assert task["params"] == {"entity_id": ["switch.gate"], "state": "on"}
+
+
+async def test_due_from_time_only_helper(
+    hass: HomeAssistant, setup_entry: MockConfigEntry
+) -> None:
+    """A time without a date means its next occurrence."""
+    local = dt_util.get_default_time_zone()
+    now = dt_util.now()
+    earlier = (now - timedelta(hours=1)).strftime("%H:%M:00")
+    hass.states.async_set("input_datetime.wake_up", earlier)
+
+    response = await upsert(hass, id="t", due_entity="input_datetime.wake_up", offset=-10)
+    due = dt_util.parse_datetime(response["task"]["due"]).astimezone(local)
+    assert now < due < now + timedelta(days=1)
+    assert due.strftime("%H:%M") == (now - timedelta(hours=1, minutes=10)).strftime("%H:%M")
+
+
+async def test_due_entity_without_time(
+    hass: HomeAssistant, setup_entry: MockConfigEntry
+) -> None:
+    """An entity with no time now is an error."""
+    hass.states.async_set("sensor.departure", "unknown")
+    with pytest.raises(ServiceValidationError) as err:
+        await upsert(hass, id="t", due_entity="sensor.departure")
+    assert err.value.translation_key == "due_entity_no_time"
+
+
+async def test_devices_need_state(
+    hass: HomeAssistant, setup_entry: MockConfigEntry
+) -> None:
+    """Devices without on/off is an error."""
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            "upsert",
+            {"id": "t", "due": DUE, "devices": ["switch.gate"]},
+            blocking=True,
+        )
+    assert err.value.translation_key == "state_required"
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        # Two ways to say when
+        {"due": DUE, "due_entity": "sensor.sun_next_setting", "action": "script.plan_x"},
+        # Two ways to say what
+        {"due": DUE, "action": "script.plan_x", "devices": ["switch.gate"], "state": "on"},
+        # Nothing to do
+        {"due": DUE},
+    ],
+)
+async def test_upsert_needs_one_when_and_one_what(
+    hass: HomeAssistant, setup_entry: MockConfigEntry, data
+) -> None:
+    """Exactly one of due/due_entity and one of action/devices."""
+    with pytest.raises(Exception):  # noqa: B017 - schema error type is HA's
+        await hass.services.async_call(
+            DOMAIN, "upsert", {"id": "t", **data}, blocking=True
+        )

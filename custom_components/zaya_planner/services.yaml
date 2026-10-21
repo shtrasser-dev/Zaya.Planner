@@ -2,35 +2,70 @@ upsert:
   fields:
     id:
       required: true
-      example: "floor_heating_morning"
+      example: "floor_heating_on"
       selector:
         text:
     title:
-      example: "Floor heating"
+      example: "Floor heating on"
       selector:
         text:
-    due:
-      required: true
-      selector:
-        datetime:
-    action:
-      required: true
-      example: "script.plan_switch"
-      selector:
-        entity:
-          filter:
-            domain: script
-    params:
-      example: '{"entity_id": "switch.floor_heating", "state": "on"}'
-      selector:
-        object:
-    expires:
-      example: "always"
-      selector:
-        text:
-    rule_id:
-      selector:
-        text:
+    when:
+      collapsed: false
+      fields:
+        due:
+          selector:
+            datetime:
+        due_entity:
+          example: "sensor.sun_next_setting"
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: timestamp
+                - domain: input_datetime
+        offset:
+          default: 0
+          selector:
+            number:
+              min: -1440
+              max: 1440
+              unit_of_measurement: min
+              mode: box
+    what:
+      collapsed: false
+      fields:
+        devices:
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: [switch, light, input_boolean, fan]
+        state:
+          selector:
+            select:
+              options:
+                - "on"
+                - "off"
+        action:
+          example: "script.plan_switch"
+          selector:
+            entity:
+              filter:
+                - domain: script
+        params:
+          example: '{"mode": "eco"}'
+          selector:
+            object:
+    more:
+      collapsed: true
+      fields:
+        expires:
+          example: "always"
+          selector:
+            text:
+        rule_id:
+          selector:
+            text:
 
 remove:
   fields:

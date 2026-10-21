@@ -60,6 +60,11 @@ ENSURE_STATE_TIMEOUT: Final = timedelta(seconds=20)
 ATTR_ID: Final = "id"
 ATTR_TITLE: Final = "title"
 ATTR_DUE: Final = "due"
+# Due time taken from an entity (sun, a helper, a timestamp sensor), plus an offset
+ATTR_DUE_ENTITY: Final = "due_entity"
+ATTR_OFFSET: Final = "offset"
+# Shortcut for the built-in action: turn these devices on/off and confirm
+ATTR_DEVICES: Final = "devices"
 ATTR_ACTION: Final = "action"
 ATTR_PARAMS: Final = "params"
 ATTR_EXPIRES: Final = "expires"

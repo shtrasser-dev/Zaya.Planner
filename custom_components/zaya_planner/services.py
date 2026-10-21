@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import probatio
 
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import (
     HomeAssistant,
     ServiceCall,
@@ -15,13 +16,17 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_ACTION,
+    ATTR_DEVICES,
     ATTR_DUE,
+    ATTR_DUE_ENTITY,
     ATTR_ENTITY_ID,
     ATTR_EXPIRES,
     ATTR_ID,
+    ATTR_OFFSET,
     ATTR_PARAMS,
     ATTR_RULE_ID,
     ATTR_STATE,
@@ -42,16 +47,28 @@ from .const import (
 from .ensure import async_ensure_state
 from .store import TaskDefinition, TaskManager, as_aware
 
-UPSERT_SCHEMA = probatio.Schema(
-    {
-        probatio.Required(ATTR_ID): cv.string,
-        probatio.Optional(ATTR_TITLE): cv.string,
-        probatio.Required(ATTR_DUE): cv.datetime,
-        probatio.Required(ATTR_ACTION): cv.entity_id,
-        probatio.Optional(ATTR_PARAMS): dict,
-        probatio.Optional(ATTR_EXPIRES): probatio.Any(EXPIRES_ALWAYS, cv.datetime),
-        probatio.Optional(ATTR_RULE_ID): cv.string,
-    }
+UPSERT_SCHEMA = probatio.All(
+    probatio.Schema(
+        {
+            probatio.Required(ATTR_ID): cv.string,
+            probatio.Optional(ATTR_TITLE): cv.string,
+            # When: a moment, or the time of an entity; plus an offset in minutes
+            probatio.Optional(ATTR_DUE): cv.datetime,
+            probatio.Optional(ATTR_DUE_ENTITY): cv.entity_id,
+            probatio.Optional(ATTR_OFFSET, default=0): probatio.Coerce(int),
+            # What: devices to turn on/off, or an action with params
+            probatio.Optional(ATTR_DEVICES): cv.entity_ids,
+            probatio.Optional(ATTR_STATE): probatio.In(["on", "off"]),
+            probatio.Optional(ATTR_ACTION): cv.entity_id,
+            probatio.Optional(ATTR_PARAMS): dict,
+            probatio.Optional(ATTR_EXPIRES): probatio.Any(EXPIRES_ALWAYS, cv.datetime),
+            probatio.Optional(ATTR_RULE_ID): cv.string,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DUE, ATTR_DUE_ENTITY),
+    cv.has_at_most_one_key(ATTR_DUE, ATTR_DUE_ENTITY),
+    cv.has_at_least_one_key(ATTR_ACTION, ATTR_DEVICES),
+    cv.has_at_most_one_key(ATTR_ACTION, ATTR_DEVICES),
 )
 
 REMOVE_SCHEMA = probatio.All(
@@ -94,19 +111,59 @@ def _get_manager(hass: HomeAssistant) -> tuple[TaskManager, str]:
     return entry.runtime_data.manager, prefix
 
 
+def _entity_time(hass: HomeAssistant, entity_id: str) -> datetime:
+    """Return the moment an entity shows: a timestamp, a date and time, or a time.
+
+    A time without a date (an input_datetime with time only) means its next
+    occurrence. The value is read once, when the task is planned.
+    """
+    state = hass.states.get(entity_id)
+    if state is not None and state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+        if (moment := dt_util.parse_datetime(state.state)) is not None:
+            return as_aware(moment)
+        if (clock := dt_util.parse_time(state.state)) is not None:
+            now = dt_util.now()
+            moment = now.replace(
+                hour=clock.hour, minute=clock.minute, second=clock.second, microsecond=0
+            )
+            if moment <= now:
+                moment += timedelta(days=1)
+            return dt_util.as_utc(moment)
+    raise ServiceValidationError(
+        translation_domain=DOMAIN,
+        translation_key="due_entity_no_time",
+        translation_placeholders={"entity_id": entity_id},
+    )
+
+
 async def _async_upsert(call: ServiceCall) -> ServiceResponse:
     manager, prefix = _get_manager(call.hass)
     data = call.data
 
-    action: str = data[ATTR_ACTION]
+    if ATTR_DEVICES in data:
+        if ATTR_STATE not in data:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="state_required"
+            )
+        action = f"{DOMAIN}.{SERVICE_ENSURE_STATE}"
+        params = {ATTR_ENTITY_ID: data[ATTR_DEVICES], ATTR_STATE: data[ATTR_STATE]}
+    else:
+        action = data[ATTR_ACTION]
+        params = data.get(ATTR_PARAMS)
     if not action.startswith(prefix) and action not in BUILTIN_ACTIONS:
         raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="action_not_allowed",
             translation_placeholders={"action": action, "prefix": prefix},
         )
+    if ATTR_DUE_ENTITY in data:
+        due = _entity_time(call.hass, data[ATTR_DUE_ENTITY])
+    else:
+        due = as_aware(data[ATTR_DUE])
+    due += timedelta(minutes=data[ATTR_OFFSET])
+
     expires = data.get(ATTR_EXPIRES)
-    if isinstance(expires, datetime) and as_aware(expires) < as_aware(data[ATTR_DUE]):
+    if isinstance(expires, datetime) and as_aware(expires) < due:
         raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="expires_before_due"
         )
@@ -114,10 +171,10 @@ async def _async_upsert(call: ServiceCall) -> ServiceResponse:
     task, result = await manager.async_upsert(
         TaskDefinition(
             id=data[ATTR_ID],
-            due=data[ATTR_DUE],
+            due=due,
             action=action,
             title=data.get(ATTR_TITLE, ""),
-            params=data.get(ATTR_PARAMS),
+            params=params,
             expires=expires,
             rule_id=data.get(ATTR_RULE_ID),
         )

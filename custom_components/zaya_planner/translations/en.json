@@ -67,23 +67,39 @@
   "services": {
     "upsert": {
       "name": "Plan a task",
-      "description": "Creates a task or changes it while its due time has not come. A task that is already due is left to the executor. A task of a rule (with rule_id) in the past is not created: rules plan only the future.",
+      "description": "Plans a task: when and what to do. Changes the task with the same ID while its time has not come; a task that is already due is left to the executor. A task of a rule in the past is not created.",
       "fields": {
         "id": {
           "name": "ID",
-          "description": "Key of the current task. Among unfinished tasks it is unique: a second upsert with the same id changes the task."
+          "description": "Key of the task. A second call with the same ID changes the task instead of adding one."
         },
         "title": {
           "name": "Title",
-          "description": "For people only: shown on the calendar and in the plan."
+          "description": "For people: shown on the calendar and in the plan."
         },
         "due": {
-          "name": "Due",
-          "description": "When to run the task. Time without a time zone is local time."
+          "name": "At",
+          "description": "Date and time. A time without a time zone is local time."
+        },
+        "due_entity": {
+          "name": "At the time of",
+          "description": "Instead of a date: an entity with a time, e.g. Sun “Next sunset” or “Next sunrise”, a date-and-time helper, a timestamp sensor. Its value is taken now, when the task is planned."
+        },
+        "offset": {
+          "name": "Offset",
+          "description": "Minutes after (+) or before (−) that time."
+        },
+        "devices": {
+          "name": "Devices",
+          "description": "Turn these devices on or off and wait until they confirm."
+        },
+        "state": {
+          "name": "State",
+          "description": "on or off, for the devices."
         },
         "action": {
-          "name": "Action",
-          "description": "Script to run, for example script.plan_switch (only with the allowed prefix), or the built-in zaya_planner.ensure_state."
+          "name": "Script",
+          "description": "Instead of devices: a script with the allowed prefix that answers ok and reason."
         },
         "params": {
           "name": "Parameters",
@@ -91,11 +107,22 @@
         },
         "expires": {
           "name": "Expires",
-          "description": "Do not run after this time. “always” — run however late (use for turning things off). Empty — the lateness limit from the settings."
+          "description": "Do not run after this time. “always”: run however late (for turning things off). Empty: the lateness limit from the settings."
         },
         "rule_id": {
           "name": "Rule",
           "description": "Rule that planned the task, usually the entity id of the automation (this.entity_id in its templates). Tasks of a rule are never planned in the past."
+        }
+      },
+      "sections": {
+        "when": {
+          "name": "When"
+        },
+        "what": {
+          "name": "What"
+        },
+        "more": {
+          "name": "More"
         }
       }
     },
@@ -155,6 +182,12 @@
     },
     "expires_before_due": {
       "message": "“expires” is earlier than “due”: the task could never run."
+    },
+    "state_required": {
+      "message": "Choose the state (on or off) for the devices."
+    },
+    "due_entity_no_time": {
+      "message": "{entity_id} has no time now."
     }
   }
 }

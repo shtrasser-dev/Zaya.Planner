@@ -106,7 +106,7 @@ actions:
 |---|---|
 | `id` | Key of the **current** task. Unique among unfinished tasks; finished tasks with the same id stay in history |
 | `title` | Name for people (calendar, plan) |
-| `due` | When to run. A time without a time zone is local time |
+| `due` | When to run. A time without a time zone is local time. Can be given as the time of an entity plus an offset (see `upsert`) |
 | `action` | `zaya_planner.ensure_state`, or a script with the allowed prefix, e.g. `script.plan_switch` |
 | `params` | Passed to the action as its data |
 | `expires` | Do not run after this time; `always`: run however late (for turning things off); empty: the lateness limit from the settings |
@@ -166,6 +166,32 @@ Events for automations:
 ## Actions
 
 ### `zaya_planner.upsert`: plan a task
+
+The form has three parts.
+
+- **When**: a date and time (`due`), *or* the time of an entity (`due_entity`): Sun's
+  “Next sunset” / “Next sunrise” (`sensor.sun_next_setting`, `sensor.sun_next_rising`),
+  a date-and-time helper, any timestamp sensor. Plus an `offset` in minutes (+ after, − before).
+  The entity's value is read once, when the task is planned; a time-only helper means its
+  next occurrence. To follow later changes, plan again (rules do).
+- **What**: `devices` + `state` (`on`/`off`), run by the built-in `zaya_planner.ensure_state`;
+  *or* a script (`action`) with `params`.
+- **More**: `expires`, `rule_id`.
+
+Lights 30 minutes after sunset, without templates:
+
+```yaml
+action: zaya_planner.upsert
+data:
+  id: gate_light_on
+  title: Gate light on
+  due_entity: sensor.sun_next_setting
+  offset: 30
+  devices: [switch.gate_light]
+  state: "on"
+```
+
+What happens to a task with the same `id`:
 
 - no unfinished task with this `id`: a new task is created;
 - there is one and it is not due yet: it is changed;
