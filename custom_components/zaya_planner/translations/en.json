@@ -17,17 +17,20 @@
         "data": {
           "lateness_hours": "Lateness limit",
           "action_prefix": "Allowed actions",
-          "retention_days": "Keep finished tasks"
+          "retention_days": "Keep finished tasks",
+          "notify_action": "Notifications"
         },
         "data_description": {
           "lateness_hours": "A task without its own `expires` is not run if it is later than this (for example after Home Assistant was off).",
           "action_prefix": "Only scripts whose entity id starts with this prefix can be tasks, for example script.plan_",
-          "retention_days": "Finished tasks older than this are removed."
+          "retention_days": "Finished tasks older than this are removed.",
+          "notify_action": "Action that sends notifications about failed tasks, for example notify.mobile_app_phone or a script with title and message fields. Empty: a notification in Home Assistant."
         }
       }
     },
     "error": {
-      "invalid_prefix": "The prefix must start with “script.” and name a group of scripts, for example script.plan_"
+      "invalid_prefix": "The prefix must start with “script.” and name a group of scripts, for example script.plan_",
+      "invalid_action": "Write an action as domain.action, for example notify.mobile_app_phone"
     }
   },
   "entity": {

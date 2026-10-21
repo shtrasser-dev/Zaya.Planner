@@ -9,6 +9,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
@@ -17,6 +18,7 @@ from .const import (
     DEFAULT_RETENTION_DAYS,
     DOMAIN,
 )
+from .executor import Executor
 from .services import async_setup_services
 from .store import TaskManager
 
@@ -52,6 +54,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) 
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Run tasks once Home Assistant has started: scripts are loaded by then
+    executor = Executor(hass, entry, manager)
+    entry.async_on_unload(async_at_started(hass, executor.async_start))
     return True
 
 

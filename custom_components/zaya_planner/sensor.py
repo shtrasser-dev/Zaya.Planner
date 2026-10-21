@@ -17,7 +17,7 @@ from .models import Task
 
 PARALLEL_UPDATES = 0
 
-ERROR_STATUSES = frozenset({TaskStatus.ERROR, TaskStatus.FAILED})
+ERROR_STATUSES = frozenset({TaskStatus.ERROR, TaskStatus.FAILED, TaskStatus.SKIPPED})
 
 
 async def async_setup_entry(
@@ -79,7 +79,7 @@ class NextTaskSensor(ZayaPlannerSensor):
 
 
 class ErrorsSensor(ZayaPlannerSensor):
-    """How many tasks are in error or failed."""
+    """How many tasks are in error, failed or skipped."""
 
     def _errors(self) -> list[Task]:
         return [task for task in self.manager.tasks if task.status in ERROR_STATUSES]

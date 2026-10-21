@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, override
 
 import probatio
@@ -23,9 +24,11 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_ACTION_PREFIX,
     CONF_LATENESS_HOURS,
+    CONF_NOTIFY_ACTION,
     CONF_RETENTION_DAYS,
     DEFAULT_ACTION_PREFIX,
     DEFAULT_LATENESS_HOURS,
+    DEFAULT_NOTIFY_ACTION,
     DEFAULT_RETENTION_DAYS,
     DOMAIN,
 )
@@ -34,7 +37,11 @@ DEFAULT_OPTIONS: dict[str, Any] = {
     CONF_LATENESS_HOURS: DEFAULT_LATENESS_HOURS,
     CONF_ACTION_PREFIX: DEFAULT_ACTION_PREFIX,
     CONF_RETENTION_DAYS: DEFAULT_RETENTION_DAYS,
+    CONF_NOTIFY_ACTION: DEFAULT_NOTIFY_ACTION,
 }
+
+# domain.action, e.g. notify.mobile_app_phone or script.alert
+ACTION_RE = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$")
 
 
 def _options_schema(options: dict[str, Any]) -> probatio.Schema:
@@ -61,6 +68,11 @@ def _options_schema(options: dict[str, Any]) -> probatio.Schema:
                     min=1, max=30, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d"
                 )
             ),
+            # Optional so that it can be cleared (back to a persistent notification)
+            probatio.Optional(
+                CONF_NOTIFY_ACTION,
+                description={"suggested_value": options[CONF_NOTIFY_ACTION]},
+            ): TextSelector(),
         }
     )
 
@@ -101,10 +113,14 @@ class ZayaPlannerOptionsFlow(OptionsFlowWithReload):
             user_input[CONF_RETENTION_DAYS] = int(user_input[CONF_RETENTION_DAYS])
             prefix = user_input[CONF_ACTION_PREFIX].strip()
             user_input[CONF_ACTION_PREFIX] = prefix
+            notify = user_input.get(CONF_NOTIFY_ACTION, "").strip()
+            user_input[CONF_NOTIFY_ACTION] = notify
+            if notify and not ACTION_RE.match(notify):
+                errors[CONF_NOTIFY_ACTION] = "invalid_action"
             # Only scripts may be run, and only a named subset of them
             if not prefix.startswith("script.") or prefix == "script.":
                 errors[CONF_ACTION_PREFIX] = "invalid_prefix"
-            else:
+            if not errors:
                 return self.async_create_entry(data=user_input)
         options = {**DEFAULT_OPTIONS, **self.config_entry.options, **(user_input or {})}
         return self.async_show_form(

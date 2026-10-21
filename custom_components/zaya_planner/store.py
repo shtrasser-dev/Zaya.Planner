@@ -77,6 +77,10 @@ class TaskManager:
         """Return all tasks ordered by due time."""
         return sorted(self._tasks.values(), key=lambda task: task.due)
 
+    def get(self, uid: str) -> Task | None:
+        """Return the task with this uid, if any."""
+        return self._tasks.get(uid)
+
     def get_open(self, task_id: str) -> Task | None:
         """Return the open task with this id, if any."""
         for task in self._tasks.values():
@@ -134,6 +138,7 @@ class TaskManager:
 
         task.title = definition.title
         task.due = due
+        task.next_attempt = due
         task.action = definition.action
         task.params = dict(definition.params or {})
         task.expires = expires
@@ -162,6 +167,7 @@ class TaskManager:
                 continue
             task.status = TaskStatus.CANCELLED
             task.finished_at = now
+            task.next_attempt = None
             task.updated_at = now
             cancelled.append(task)
         if cancelled:
@@ -192,6 +198,10 @@ class TaskManager:
             EVENT_LOGBOOK_ENTRY,
             {"name": LOGBOOK_NAME, "message": text, "domain": DOMAIN},
         )
+
+    async def async_save(self) -> None:
+        """Save tasks changed in place (by the executor) and tell the entities."""
+        await self._async_changed()
 
     async def _async_changed(self) -> None:
         await self._store.async_save(

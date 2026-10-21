@@ -17,17 +17,20 @@
         "data": {
           "lateness_hours": "Предел опоздания",
           "action_prefix": "Разрешённые действия",
-          "retention_days": "Хранить выполненные задачи"
+          "retention_days": "Хранить выполненные задачи",
+          "notify_action": "Уведомления"
         },
         "data_description": {
           "lateness_hours": "Задача без своего `expires` не выполняется, если опоздала больше чем на столько (например, HA был выключен).",
           "action_prefix": "Задачей может быть только скрипт, чей entity id начинается с этого префикса, например script.plan_",
-          "retention_days": "Выполненные задачи старше этого срока удаляются."
+          "retention_days": "Выполненные задачи старше этого срока удаляются.",
+          "notify_action": "Действие, которым отправлять уведомления о сбоях задач, например notify.mobile_app_phone или скрипт с полями title и message. Пусто — уведомление в самом Home Assistant."
         }
       }
     },
     "error": {
-      "invalid_prefix": "Префикс должен начинаться с «script.» и задавать группу скриптов, например script.plan_"
+      "invalid_prefix": "Префикс должен начинаться с «script.» и задавать группу скриптов, например script.plan_",
+      "invalid_action": "Укажите действие в виде домен.действие, например notify.mobile_app_phone"
     }
   },
   "entity": {

@@ -44,6 +44,10 @@ class Task:
     created_at: datetime = field(default_factory=dt_util.utcnow)
     updated_at: datetime = field(default_factory=dt_util.utcnow)
     finished_at: datetime | None = None
+    # Executor bookkeeping: when to try next, since when it fails, alert sent
+    next_attempt: datetime | None = None
+    error_since: datetime | None = None
+    notified: bool = False
 
     @property
     def is_open(self) -> bool:
@@ -76,6 +80,9 @@ class Task:
             "created_at": _dt_to_str(self.created_at),
             "updated_at": _dt_to_str(self.updated_at),
             "finished_at": _dt_to_str(self.finished_at),
+            "next_attempt": _dt_to_str(self.next_attempt),
+            "error_since": _dt_to_str(self.error_since),
+            "notified": self.notified,
         }
 
     @classmethod
@@ -100,4 +107,7 @@ class Task:
             created_at=_dt_from_str(data.get("created_at")) or dt_util.utcnow(),
             updated_at=_dt_from_str(data.get("updated_at")) or dt_util.utcnow(),
             finished_at=_dt_from_str(data.get("finished_at")),
+            next_attempt=_dt_from_str(data.get("next_attempt")),
+            error_since=_dt_from_str(data.get("error_since")),
+            notified=data.get("notified", False),
         )

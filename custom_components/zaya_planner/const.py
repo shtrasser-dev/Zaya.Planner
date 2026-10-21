@@ -13,13 +13,32 @@ STORAGE_VERSION: Final = 1
 CONF_ACTION_PREFIX: Final = "action_prefix"
 CONF_LATENESS_HOURS: Final = "lateness_hours"
 CONF_RETENTION_DAYS: Final = "retention_days"
+CONF_NOTIFY_ACTION: Final = "notify_action"
 
 DEFAULT_ACTION_PREFIX: Final = "script.plan_"
 DEFAULT_LATENESS_HOURS: Final = 5
 DEFAULT_RETENTION_DAYS: Final = 3
+# Empty: a persistent notification in Home Assistant
+DEFAULT_NOTIFY_ACTION: Final = ""
 
 # How often finished tasks older than the retention period are removed
 CLEANUP_INTERVAL: Final = timedelta(hours=1)
+
+# Executor: pauses between attempts (the last one repeats)
+RETRY_DELAYS: Final = (
+    timedelta(minutes=1),
+    timedelta(minutes=1),
+    timedelta(minutes=2),
+    timedelta(minutes=5),
+)
+# How long a task's script may run before the attempt counts as failed
+SCRIPT_TIMEOUT: Final = timedelta(minutes=2)
+# Notify when a task keeps failing this long
+ERROR_NOTIFY_AFTER: Final = timedelta(minutes=10)
+
+# Events
+EVENT_TASK_DONE: Final = f"{DOMAIN}_task_done"
+EVENT_TASK_FAILED: Final = f"{DOMAIN}_task_failed"
 
 # Length of a task's event on the calendar (a task happens at a moment)
 EVENT_DURATION: Final = timedelta(minutes=1)

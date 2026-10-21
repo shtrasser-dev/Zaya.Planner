@@ -157,8 +157,8 @@ async def test_remove_by_rule_cancels_only_future(
     frozen_now.move_to("2026-10-21T13:00:00+00:00")
     assert await remove(hass, rule_id="r") == ["b"]
 
-    open_ids = [task["id"] for task in await list_tasks(hass, status="scheduled")]
-    assert open_ids == ["a", "c"]
+    cancelled = [task["id"] for task in await list_tasks(hass, status="cancelled")]
+    assert cancelled == ["b"]
 
 
 async def test_remove_by_id_cancels_due_task(

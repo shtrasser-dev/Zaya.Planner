@@ -19,6 +19,15 @@ from .models import Task
 
 PARALLEL_UPDATES = 0
 
+# Shown before the title so the outcome is visible without opening the event
+STATUS_ICONS: dict[TaskStatus, str] = {
+    TaskStatus.RUNNING: "⏳",
+    TaskStatus.DONE: "✅",
+    TaskStatus.ERROR: "⚠️",
+    TaskStatus.FAILED: "❌",
+    TaskStatus.SKIPPED: "⏭️",
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -80,12 +89,16 @@ class ZayaPlannerCalendar(ZayaPlannerEntity, CalendarEntity):
         if task.params:
             params = json.dumps(task.params, ensure_ascii=False, default=str)
             lines.append(f"{message(hass, 'label_params')}: {params}")
+        if task.attempts:
+            lines.append(f"{message(hass, 'label_attempts')}: {task.attempts}")
         if task.last_error:
             lines.append(f"{message(hass, 'label_error')}: {task.last_error}")
         return CalendarEvent(
             start=dt_util.as_local(task.due),
             end=dt_util.as_local(_event_end(task)),
-            summary=task.display_title,
+            summary=f"{icon} {task.display_title}"
+            if (icon := STATUS_ICONS.get(task.status))
+            else task.display_title,
             description="\n".join(lines),
             uid=task.uid,
         )
