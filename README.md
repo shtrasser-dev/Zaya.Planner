@@ -4,9 +4,8 @@ A Home Assistant integration that plans smart home tasks and runs them reliably:
 it calls a script when a task is due, waits for the script to confirm, retries on failure
 and reports what went wrong. Everything planned is shown on the “Schedule” calendar and in sensors.
 
-> **Status: stage 1 of 6.** The task store, the `upsert` / `remove` / `list` actions,
-> the calendar and the sensors are done. The executor (running tasks when due) and rules
-> come next, see [Roadmap](#roadmap).
+> **Status: stage 2 of 6.** Tasks are stored, shown and run when due, with retries and
+> notifications. Rules (planning tasks declaratively) come next, see [Roadmap](#roadmap).
 
 ## How it works
 
@@ -14,7 +13,7 @@ and reports what went wrong. Everything planned is shown on the “Schedule” c
   Tasks are created with the `zaya_planner.upsert` action from an automation, a script or (later) a rule.
 - **Rule** (stage 3): a declarative description of when and what to plan. Once a day
   (or on weekdays, at weekends, every hour) it calls a planner script that works out the tasks.
-- **Executor** (stage 2): part of the integration. When a task is due it calls the task's script,
+- **Executor**: part of the integration. When a task is due it calls the task's script,
   waits for its `{ok, reason}` response, retries with pauses, closes the task and logs the outcome.
 
 Tasks are kept in `.storage/zaya_planner.tasks` and written to disk **immediately** on every change,
@@ -39,6 +38,7 @@ Requires Home Assistant 2026.10 or newer.
 | Lateness limit | 5 h | A task without its own `expires` is not run if it is later than this (for example after Home Assistant was off) |
 | Allowed actions | `script.plan_` | Only scripts whose entity id starts with this prefix can be tasks |
 | Keep finished tasks | 3 days | Older finished tasks are removed |
+| Notifications | empty | Action for notifications about failing tasks, e.g. `notify.mobile_app_phone` or a script with `title` and `message` fields. Empty: a notification in Home Assistant |
 
 ## Task
 
@@ -53,6 +53,50 @@ Requires Home Assistant 2026.10 or newer.
 | `rule_id` | Rule that created the task |
 | `status` | `scheduled` · `running` · `done` · `error` (retrying) · `failed` · `skipped` · `cancelled` |
 | `attempts`, `last_error`, `result`, `finished_at` | Filled in by the executor |
+
+## Running tasks
+
+When a task is due, the executor calls its script with `params` as data and waits
+for the answer (at most 2 minutes). The script must check that it did what it should and answer:
+
+```yaml
+script:
+  plan_switch:
+    alias: Plan · switch
+    fields:
+      entity_id: {}
+      state: {}
+    sequence:
+      - action: "switch.turn_{{ state }}"
+        target: { entity_id: "{{ entity_id }}" }
+        continue_on_error: true
+      - wait_template: "{{ is_state(entity_id, state) }}"
+        timeout: "00:00:20"
+        continue_on_timeout: true
+      - variables:
+          answer:
+            ok: "{{ is_state(entity_id, state) }}"
+            reason: "{{ '' if is_state(entity_id, state) else entity_id ~ ' is ' ~ states(entity_id) }}"
+      - stop: done
+        response_variable: answer
+```
+
+- `ok: true`: the task is **done**.
+- `ok: false` (with a `reason`), no `ok` in the answer, an error or a timeout: the task is in
+  **error** and is retried after 1, 1, 2, 5 minutes, then every 5 minutes. Each new reason goes to the logbook.
+- An error that lasts 10 minutes is reported once (see *Notifications* in the settings).
+- When the task expires (`expires`, or `due` + the lateness limit) attempts stop:
+  the task is **failed** (it was tried) or **skipped** (it was too late to try, e.g. Home Assistant was off).
+  Both are reported. With `expires: always` the task is retried until it succeeds.
+- An attempt interrupted by a restart of Home Assistant is made again.
+- A task cancelled while its script runs stays cancelled.
+
+Events for automations:
+
+| Event | When | Data |
+|---|---|---|
+| `zaya_planner_task_done` | a task is done | `id`, `uid`, `title`, `action`, `rule_id`, `attempts`, `result` |
+| `zaya_planner_task_failed` | a task failed or was skipped | the same plus `status` and `reason` |
 
 ## Actions
 
@@ -91,9 +135,9 @@ Filters: `id`, `rule_id`, `status` (one or a list). Returns `{tasks: [...]}` ord
 
 | Entity | Shows |
 |---|---|
-| `calendar.zaya_planner_schedule` “Schedule” | An event per task: planned and recently finished (cancelled tasks are not shown) |
+| `calendar.zaya_planner_schedule` “Schedule” | An event per task: planned and recently finished (cancelled tasks are not shown). The outcome is shown before the title: ⏳ running, ✅ done, ⚠️ error, ❌ failed, ⏭️ skipped |
 | `sensor.zaya_planner_next_task` “Next task” | Due time of the next planned task; the task itself in attributes |
-| `sensor.zaya_planner_errors` “Errors” | Number of tasks in error or failed; the list in the `tasks` attribute |
+| `sensor.zaya_planner_errors` “Errors” | Number of tasks in error, failed or skipped; the list in the `tasks` attribute |
 | `sensor.zaya_planner_tasks` “Plan” | Number of unfinished tasks; **all** tasks in the `tasks` attribute |
 
 Entity ids do not depend on the language of Home Assistant. Names, statuses and messages
@@ -113,7 +157,7 @@ content: >-
 ## Roadmap
 
 1. ✅ Skeleton, task store, `upsert` / `remove` / `list`, calendar, sensors.
-2. Executor: running tasks when due, waiting for the script's response, retries, notifications,
+2. ✅ Executor: running tasks when due, waiting for the script's response, retries, notifications,
    `zaya_planner_task_done` / `zaya_planner_task_failed` events, logbook.
 3. Rules: `repeat` (daily / weekdays / weekends / hourly), catching up missed runs, `zaya_planner_rule_run` event.
 4. A test Home Assistant instance, installation through HACS.
