@@ -22,6 +22,12 @@ BLUEPRINTS = Path(__file__).parent.parent / "blueprints"
 RULE = "automation.floor_heating"
 
 
+@pytest.fixture
+def expected_lingering_timers() -> bool:
+    """Automations keep their time triggers until Home Assistant stops."""
+    return True
+
+
 @pytest.fixture(autouse=True)
 async def moscow(hass: HomeAssistant) -> None:
     """Moscow time: UTC+3 all year. NOW (12:00 UTC) is Wednesday 15:00."""
