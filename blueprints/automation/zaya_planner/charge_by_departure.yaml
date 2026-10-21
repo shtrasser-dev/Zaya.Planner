@@ -1,0 +1,184 @@
+blueprint:
+  name: "Zaya Planner: charge by departure"
+  description: >-
+    Charges before a departure: turns the charger on in time to finish before
+    the departure (plus a margin) and off a little after it.
+
+
+    The departure comes from an entity: an input_datetime helper or a timestamp
+    sensor. The charging time is fixed or comes from a sensor in minutes. The
+    automation plans two tasks in Zaya Planner, “on” and “off”, once the
+    departure is close enough, and follows changes: a later departure moves the
+    tasks, a removed one cancels the planned “on” (a planned “off” always stays).
+    The planner runs the tasks reliably: it waits until the charger confirms,
+    retries and reports failures; turning off happens however late.
+  domain: automation
+  source_url: https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/charge_by_departure.yaml
+  input:
+    charger:
+      name: Charger
+      selector:
+        entity:
+          filter:
+            - domain: [switch, input_boolean]
+    departure:
+      name: Departure
+      description: An input_datetime helper (date and time) or a timestamp sensor.
+      selector:
+        entity:
+          filter:
+            - domain: input_datetime
+            - domain: sensor
+              device_class: timestamp
+    minutes:
+      name: Charging time
+      description: Used when no sensor is chosen below or it has no value.
+      default: 120
+      selector:
+        number:
+          min: 10
+          max: 1440
+          unit_of_measurement: min
+          mode: box
+    minutes_sensor:
+      name: Charging time sensor (optional)
+      description: A sensor with the charging time in minutes.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: [sensor, input_number]
+    margin:
+      name: Finish before departure
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 240
+          unit_of_measurement: min
+          mode: box
+    keep_after:
+      name: Turn off after departure
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 240
+          unit_of_measurement: min
+          mode: box
+    horizon:
+      name: Plan ahead
+      description: The tasks appear when the departure is this close.
+      default: 14
+      selector:
+        number:
+          min: 1
+          max: 72
+          unit_of_measurement: h
+          mode: box
+    on_title:
+      name: Name of the “on” task
+      description: Shown after the automation's name on the calendar.
+      default: "on"
+      selector:
+        text: {}
+    off_title:
+      name: Name of the “off” task
+      default: "off"
+      selector:
+        text: {}
+
+mode: queued
+max: 10
+max_exceeded: silent
+
+triggers:
+  - trigger: homeassistant
+    event: start
+  - trigger: event
+    event_type: automation_reloaded
+  - trigger: state
+    entity_id: !input departure
+  - trigger: time_pattern
+    minutes: "/10"
+  - trigger: event
+    event_type: zaya_planner_task_done
+    id: task
+  - trigger: event
+    event_type: zaya_planner_task_failed
+    id: task
+
+conditions:
+  # Only tasks of this automation
+  - condition: template
+    value_template: "{{ trigger.id != 'task' or trigger.event.data.rule_id == this.entity_id }}"
+
+variables:
+  charger: !input charger
+  departure: !input departure
+  minutes: !input minutes
+  minutes_sensor: !input minutes_sensor
+  margin: !input margin
+  keep_after: !input keep_after
+  horizon: !input horizon
+  on_title: !input on_title
+  off_title: !input off_title
+  rule: "{{ this.entity_id }}"
+  name: "{{ this.attributes.friendly_name }}"
+
+actions:
+  - variables:
+      window: >-
+        {%- if departure.startswith('input_datetime.') -%}
+          {%- set ts = state_attr(departure, 'timestamp') -%}
+          {%- set leave = as_datetime(ts) if ts is number else none -%}
+        {%- else -%}
+          {%- set leave = as_datetime(states(departure), none) -%}
+        {%- endif -%}
+        {%- set length = states(minutes_sensor) | int(minutes | int) if minutes_sensor else minutes | int -%}
+        {%- if leave is none -%}
+          {{ {} }}
+        {%- else -%}
+          {%- set on = leave - timedelta(minutes=length + margin | int) -%}
+          {%- set off = leave + timedelta(minutes=keep_after | int) -%}
+          {%- if off > now() and leave - now() <= timedelta(hours=horizon | int) -%}
+            {{ {'on': on.isoformat(), 'off': off.isoformat()} }}
+          {%- else -%}
+            {{ {} }}
+          {%- endif -%}
+        {%- endif -%}
+  - if: "{{ 'on' not in window }}"
+    then:
+      # No departure soon: nothing to turn on (a planned “off” stays)
+      - action: zaya_planner.remove
+        data:
+          id: "{{ rule }}:on"
+      - stop: No departure soon
+  - variables:
+      off_at: "{{ window.off }}"
+      on_at: "{{ ([as_datetime(window.on), now() + timedelta(seconds=30)] | max).isoformat() }}"
+      need_on: "{{ as_datetime(window.on) > now() or not is_state(charger, 'on') }}"
+  - if: "{{ need_on and as_datetime(on_at) < as_datetime(off_at) }}"
+    then:
+      - action: zaya_planner.upsert
+        data:
+          id: "{{ rule }}:on"
+          title: "{{ name }}: {{ on_title }}"
+          due: "{{ on_at }}"
+          expires: "{{ off_at }}"
+          action: zaya_planner.ensure_state
+          params:
+            entity_id: "{{ charger }}"
+            state: "on"
+          rule_id: "{{ rule }}"
+  - action: zaya_planner.upsert
+    data:
+      id: "{{ rule }}:off"
+      title: "{{ name }}: {{ off_title }}"
+      due: "{{ off_at }}"
+      expires: always
+      action: zaya_planner.ensure_state
+      params:
+        entity_id: "{{ charger }}"
+        state: "off"
+      rule_id: "{{ rule }}"

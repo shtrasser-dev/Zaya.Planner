@@ -63,10 +63,17 @@ list:
             - skipped
             - cancelled
 
-run_rule:
+ensure_state:
   fields:
-    rule_id:
+    entity_id:
       required: true
-      example: "floor_heating"
       selector:
-        text:
+        entity:
+          multiple: true
+    state:
+      required: true
+      selector:
+        select:
+          options:
+            - "on"
+            - "off"

@@ -1,4 +1,4 @@
-"""Calendar “Schedule”: an event per task and per next rule run."""
+"""Calendar “Schedule”: one event per task."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from .const import EVENT_DURATION, TaskStatus
 from .entity import ZayaPlannerEntity
 from .messages import message
 from .models import Task
-from .rules import rules_from_entry
 
 PARALLEL_UPDATES = 0
 
@@ -28,8 +27,6 @@ STATUS_ICONS: dict[TaskStatus, str] = {
     TaskStatus.FAILED: "❌",
     TaskStatus.SKIPPED: "⏭️",
 }
-# A rule run: planning, not doing
-RULE_ICON = "🗓️"
 
 
 async def async_setup_entry(
@@ -63,52 +60,25 @@ class ZayaPlannerCalendar(ZayaPlannerEntity, CalendarEntity):
     @property
     @override
     def event(self) -> CalendarEvent | None:
-        """Return the current or next open task or rule run."""
-        now = dt_util.now()
-        events = [
-            self._event(task)
-            for task in self.manager.tasks
-            if task.is_open and _event_end(task) > dt_util.utcnow()
-        ] + [event for event in self._rule_events() if event.end > now]
-        return min(events, key=lambda event: event.start, default=None)
+        """Return the current or next open task."""
+        now = dt_util.utcnow()
+        for task in self.manager.tasks:
+            if task.is_open and _event_end(task) > now:
+                return self._event(task)
+        return None
 
     @override
     async def async_get_events(
         self, hass: HomeAssistant, start_date: datetime, end_date: datetime
     ) -> list[CalendarEvent]:
-        """Return tasks and rule runs between the given dates."""
-        tasks = [
+        """Return tasks between the given dates."""
+        return [
             self._event(task)
             for task in self.manager.tasks
             if task.status != TaskStatus.CANCELLED
             and task.due < end_date
             and _event_end(task) > start_date
         ]
-        rules = [
-            event
-            for event in self._rule_events()
-            if event.start < end_date and event.end > start_date
-        ]
-        return sorted(tasks + rules, key=lambda event: event.start)
-
-    def _rule_events(self) -> list[CalendarEvent]:
-        """Return the next run of each enabled rule."""
-        events = []
-        for rule in rules_from_entry(self.entry):
-            state = self.manager.rule_states.get(rule.rule_id)
-            if not rule.enabled or state is None or state.next_run is None:
-                continue
-            start = dt_util.as_local(state.next_run)
-            events.append(
-                CalendarEvent(
-                    start=start,
-                    end=start + EVENT_DURATION,
-                    summary=f"{RULE_ICON} {rule.title}",
-                    description=f"{message(self.hass, 'label_planner')}: {rule.planner}",
-                    uid=f"rule_{rule.rule_id}",
-                )
-            )
-        return events
 
     def _event(self, task: Task) -> CalendarEvent:
         hass = self.hass

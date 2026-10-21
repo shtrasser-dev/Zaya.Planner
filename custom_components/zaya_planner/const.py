@@ -39,16 +39,6 @@ ERROR_NOTIFY_AFTER: Final = timedelta(minutes=10)
 # Events
 EVENT_TASK_DONE: Final = f"{DOMAIN}_task_done"
 EVENT_TASK_FAILED: Final = f"{DOMAIN}_task_failed"
-EVENT_RULE_RUN: Final = f"{DOMAIN}_rule_run"
-
-# Rules are config subentries of this type
-SUBENTRY_RULE: Final = "rule"
-CONF_RULE_ID: Final = "rule_id"
-CONF_PLANNER: Final = "planner"
-CONF_PARAMS: Final = "params"
-CONF_REPEAT: Final = "repeat"
-CONF_TIME: Final = "time"
-CONF_ENABLED: Final = "enabled"
 
 # Length of a task's event on the calendar (a task happens at a moment)
 EVENT_DURATION: Final = timedelta(minutes=1)
@@ -60,7 +50,12 @@ EXPIRES_ALWAYS: Final = "always"
 SERVICE_UPSERT: Final = "upsert"
 SERVICE_REMOVE: Final = "remove"
 SERVICE_LIST: Final = "list"
-SERVICE_RUN_RULE: Final = "run_rule"
+SERVICE_ENSURE_STATE: Final = "ensure_state"
+
+# Built-in action a task may run besides scripts: turn on/off and confirm
+BUILTIN_ACTIONS: Final = frozenset({f"{DOMAIN}.{SERVICE_ENSURE_STATE}"})
+# How long ensure_state waits for a device to confirm
+ENSURE_STATE_TIMEOUT: Final = timedelta(seconds=20)
 
 ATTR_ID: Final = "id"
 ATTR_TITLE: Final = "title"
@@ -71,7 +66,8 @@ ATTR_EXPIRES: Final = "expires"
 ATTR_RULE_ID: Final = "rule_id"
 ATTR_STATUS: Final = "status"
 ATTR_TASKS: Final = "tasks"
-ATTR_RULES: Final = "rules"
+ATTR_ENTITY_ID: Final = "entity_id"
+ATTR_STATE: Final = "state"
 
 # Logbook entries are written under this name
 LOGBOOK_NAME: Final = "Zaya Planner"
@@ -108,12 +104,3 @@ class UpsertResult(StrEnum):
     # A rule planned a task in the past: rules plan only the future
     PAST = "past"
 
-
-class Repeat(StrEnum):
-    """How often a rule runs."""
-
-    DAILY = "daily"
-    WEEKDAYS = "weekdays"
-    WEEKENDS = "weekends"
-    # Every hour at the minute of the rule's time
-    HOURLY = "hourly"

@@ -1,0 +1,139 @@
+blueprint:
+  name: "Zaya Planner: lights at night"
+  description: >-
+    Keeps lights on from sunset to sunrise, with offsets.
+
+
+    The automation plans two tasks in Zaya Planner, “on” after sunset and “off”
+    before sunrise, and the planner runs them reliably: it waits until the
+    lights confirm, retries and reports failures. Turning off happens however
+    late. The next night is planned when the previous one ends, at noon, after
+    Home Assistant starts and whenever the automation is saved; if Home
+    Assistant was off at dusk, the lights are turned on as soon as it is back.
+  domain: automation
+  source_url: https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/night_light.yaml
+  input:
+    devices:
+      name: Lights
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: [switch, light, input_boolean]
+    after_sunset:
+      name: On after sunset
+      default: 30
+      selector:
+        number:
+          min: -180
+          max: 180
+          unit_of_measurement: min
+          mode: box
+    before_sunrise:
+      name: Off before sunrise
+      default: 30
+      selector:
+        number:
+          min: -180
+          max: 180
+          unit_of_measurement: min
+          mode: box
+    on_title:
+      name: Name of the “on” task
+      description: Shown after the automation's name on the calendar.
+      default: "on"
+      selector:
+        text: {}
+    off_title:
+      name: Name of the “off” task
+      default: "off"
+      selector:
+        text: {}
+
+mode: queued
+max: 10
+max_exceeded: silent
+
+triggers:
+  - trigger: homeassistant
+    event: start
+  - trigger: event
+    event_type: automation_reloaded
+  - trigger: time
+    at: "12:00:00"
+  - trigger: event
+    event_type: zaya_planner_task_done
+    id: task
+  - trigger: event
+    event_type: zaya_planner_task_failed
+    id: task
+
+conditions:
+  # Only tasks of this automation
+  - condition: template
+    value_template: "{{ trigger.id != 'task' or trigger.event.data.rule_id == this.entity_id }}"
+
+variables:
+  devices: !input devices
+  after_sunset: !input after_sunset
+  before_sunrise: !input before_sunrise
+  on_title: !input on_title
+  off_title: !input off_title
+  rule: "{{ this.entity_id }}"
+  name: "{{ this.attributes.friendly_name }}"
+
+actions:
+  # The night that has not ended yet: the current one or the next one
+  - variables:
+      night: >-
+        {%- set rising = as_datetime(state_attr('sun.sun', 'next_rising')) -%}
+        {%- set setting = as_datetime(state_attr('sun.sun', 'next_setting')) -%}
+        {%- set a = timedelta(minutes=after_sunset | int) -%}
+        {%- set b = timedelta(minutes=before_sunrise | int) -%}
+        {%- if rising is none or setting is none -%}
+          {{ {} }}
+        {%- elif is_state('sun.sun', 'below_horizon') -%}
+          {%- set on = setting - timedelta(days=1) + a -%}
+          {%- set off = rising - b -%}
+          {%- if off <= now() -%}
+            {%- set on = setting + a -%}
+            {%- set off = rising + timedelta(days=1) - b -%}
+          {%- endif -%}
+          {{ {'on': on.isoformat(), 'off': off.isoformat()} }}
+        {%- else -%}
+          {{ {'on': (setting + a).isoformat(), 'off': (rising - b).isoformat()} }}
+        {%- endif -%}
+  - if: "{{ 'on' not in night }}"
+    then:
+      - stop: The sun integration gives no sunrise or sunset
+  - variables:
+      off_at: "{{ night.off }}"
+      on_at: "{{ ([as_datetime(night.on), now() + timedelta(seconds=30)] | max).isoformat() }}"
+      # Inside the night only if something is not on yet (e.g. after a restart)
+      need_on: >-
+        {{ as_datetime(night.on) > now()
+           or devices | reject('is_state', 'on') | list | count > 0 }}
+  - if: "{{ need_on and as_datetime(on_at) < as_datetime(off_at) }}"
+    then:
+      - action: zaya_planner.upsert
+        data:
+          id: "{{ rule }}:on"
+          title: "{{ name }}: {{ on_title }}"
+          due: "{{ on_at }}"
+          expires: "{{ off_at }}"
+          action: zaya_planner.ensure_state
+          params:
+            entity_id: "{{ devices }}"
+            state: "on"
+          rule_id: "{{ rule }}"
+  - action: zaya_planner.upsert
+    data:
+      id: "{{ rule }}:off"
+      title: "{{ name }}: {{ off_title }}"
+      due: "{{ off_at }}"
+      expires: always
+      action: zaya_planner.ensure_state
+      params:
+        entity_id: "{{ devices }}"
+        state: "off"
+      rule_id: "{{ rule }}"

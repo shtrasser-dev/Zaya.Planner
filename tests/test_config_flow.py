@@ -12,7 +12,7 @@ from custom_components.zaya_planner.const import (
     DEFAULT_RETENTION_DAYS,
     DOMAIN,
 )
-from homeassistant.config_entries import SOURCE_USER
+from homeassistant.config_entries import SOURCE_USER, ConfigSubentryData
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
@@ -84,3 +84,29 @@ async def test_options_flow(hass: HomeAssistant, setup_entry: MockConfigEntry) -
         CONF_RETENTION_DAYS: 7,
         CONF_NOTIFY_ACTION: "notify.mobile_app_phone",
     }
+
+
+async def test_rules_from_older_version_are_removed(hass: HomeAssistant) -> None:
+    """Rules set up in the integration (1.1) are dropped: rules are automations now."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Zaya Planner",
+        data={},
+        options={},
+        version=1,
+        minor_version=1,
+        subentries_data=[
+            ConfigSubentryData(
+                data={"rule_id": "floor"},
+                subentry_type="rule",
+                title="Floor",
+                unique_id="floor",
+            )
+        ],
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.minor_version == 2
+    assert dict(entry.subentries) == {}

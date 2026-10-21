@@ -10,11 +10,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import ZayaPlannerConfigEntry
-from .const import ATTR_RULES, ATTR_TASKS, TaskStatus
+from .const import ATTR_TASKS, TaskStatus
 from .entity import ZayaPlannerEntity
 from .messages import message
-from .models import RuleState, Task
-from .rules import rules_from_entry
+from .models import Task
 
 PARALLEL_UPDATES = 0
 
@@ -32,7 +31,6 @@ async def async_setup_entry(
             NextTaskSensor(entry, entry.runtime_data.manager, "next_task"),
             ErrorsSensor(entry, entry.runtime_data.manager, "errors"),
             TasksSensor(entry, entry.runtime_data.manager, "tasks"),
-            RulesSensor(entry, entry.runtime_data.manager, "rules"),
         ]
     )
 
@@ -127,35 +125,3 @@ class TasksSensor(ZayaPlannerSensor):
             ]
         }
 
-
-class RulesSensor(ZayaPlannerSensor):
-    """Number of enabled rules; all rules with their runs in attributes."""
-
-    _unrecorded_attributes = frozenset({ATTR_RULES})
-
-    @property
-    @override
-    def native_value(self) -> int:
-        """Return the number of enabled rules."""
-        return sum(1 for rule in rules_from_entry(self.entry) if rule.enabled)
-
-    @property
-    @override
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the rules ordered by title."""
-        rules = []
-        for rule in rules_from_entry(self.entry):
-            state = self.manager.rule_states.get(rule.rule_id) or RuleState()
-            rules.append(
-                {
-                    "id": rule.rule_id,
-                    "title": rule.title,
-                    "planner": rule.planner,
-                    "params": rule.params,
-                    "repeat": str(rule.repeat),
-                    "time": rule.time,
-                    "enabled": rule.enabled,
-                    **{k: v for k, v in state.as_dict().items() if k != "schedule"},
-                }
-            )
-        return {ATTR_RULES: rules}

@@ -48,9 +48,6 @@
       },
       "tasks": {
         "name": "Plan"
-      },
-      "rules": {
-        "name": "Rules"
       }
     }
   },
@@ -64,14 +61,6 @@
         "failed": "Failed",
         "skipped": "Skipped",
         "cancelled": "Cancelled"
-      }
-    },
-    "repeat": {
-      "options": {
-        "daily": "Every day",
-        "weekdays": "On weekdays",
-        "weekends": "At weekends",
-        "hourly": "Every hour"
       }
     }
   },
@@ -94,7 +83,7 @@
         },
         "action": {
           "name": "Action",
-          "description": "Script to run, for example script.plan_switch. Only scripts with the allowed prefix are accepted."
+          "description": "Script to run, for example script.plan_switch (only with the allowed prefix), or the built-in zaya_planner.ensure_state."
         },
         "params": {
           "name": "Parameters",
@@ -106,7 +95,7 @@
         },
         "rule_id": {
           "name": "Rule",
-          "description": "Rule that created the task."
+          "description": "Rule that planned the task, usually the entity id of the automation (this.entity_id in its templates). Tasks of a rule are never planned in the past."
         }
       }
     },
@@ -142,13 +131,17 @@
         }
       }
     },
-    "run_rule": {
-      "name": "Run rule",
-      "description": "Runs a rule now; its schedule stays as it is.",
+    "ensure_state": {
+      "name": "Turn on/off and confirm",
+      "description": "Turns devices on or off and waits until each one reports the new state. Answers ok and reason, so a task can use it directly as its action.",
       "fields": {
-        "rule_id": {
-          "name": "Rule",
-          "description": "ID of the rule."
+        "entity_id": {
+          "name": "Devices",
+          "description": "Switches, lights, input booleans, fans…"
+        },
+        "state": {
+          "name": "State",
+          "description": "on or off"
         }
       }
     }
@@ -158,67 +151,10 @@
       "message": "Zaya Planner is not set up."
     },
     "action_not_allowed": {
-      "message": "Action {action} is not allowed: only scripts starting with {prefix} can be tasks."
+      "message": "Action {action} is not allowed: a task runs zaya_planner.ensure_state or a script starting with {prefix}."
     },
     "expires_before_due": {
       "message": "“expires” is earlier than “due”: the task could never run."
-    },
-    "unknown_rule": {
-      "message": "There is no rule {rule_id}."
-    }
-  },
-  "config_subentries": {
-    "rule": {
-      "initiate_flow": {
-        "user": "Add rule"
-      },
-      "entry_type": "Rule",
-      "step": {
-        "user": {
-          "title": "New rule",
-          "description": "At the chosen time the rule calls its planner script with the parameters and rule_id. The planner works out the tasks and creates them with zaya_planner.upsert (passing the same rule_id).",
-          "data": {
-            "rule_id": "Rule ID",
-            "title": "Title",
-            "planner": "Planner script",
-            "params": "Parameters",
-            "repeat": "Repeat",
-            "time": "Time",
-            "enabled": "Enabled"
-          },
-          "data_description": {
-            "rule_id": "Latin letters, digits and _; cannot be changed later. Tasks of the rule carry it in rule_id.",
-            "planner": "A script with the allowed prefix (see the integration settings) that answers ok and reason.",
-            "params": "Passed to the planner together with rule_id.",
-            "time": "Local time. For “Every hour” only the minutes count.",
-            "enabled": "A disabled rule does not run; tasks it already planned stay."
-          }
-        },
-        "reconfigure": {
-          "title": "Rule {rule_id}",
-          "description": "Changing the repeat or the time plans the next run anew.",
-          "data": {
-            "title": "Title",
-            "planner": "Planner script",
-            "params": "Parameters",
-            "repeat": "Repeat",
-            "time": "Time",
-            "enabled": "Enabled"
-          },
-          "data_description": {
-            "planner": "A script with the allowed prefix (see the integration settings) that answers ok and reason.",
-            "params": "Passed to the planner together with rule_id.",
-            "time": "Local time. For “Every hour” only the minutes count.",
-            "enabled": "A disabled rule does not run; tasks it already planned stay."
-          }
-        }
-      },
-      "error": {
-        "invalid_rule_id": "Use only Latin letters, digits and _",
-        "rule_id_exists": "A rule with this ID already exists",
-        "planner_not_allowed": "The planner must be a script with the allowed prefix (see the integration settings)",
-        "invalid_params": "Parameters must be a mapping (key: value)"
-      }
     }
   }
 }

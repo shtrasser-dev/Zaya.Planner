@@ -19,23 +19,27 @@ from homeassistant.helpers import config_validation as cv
 from .const import (
     ATTR_ACTION,
     ATTR_DUE,
+    ATTR_ENTITY_ID,
     ATTR_EXPIRES,
     ATTR_ID,
     ATTR_PARAMS,
     ATTR_RULE_ID,
+    ATTR_STATE,
     ATTR_STATUS,
     ATTR_TASKS,
     ATTR_TITLE,
+    BUILTIN_ACTIONS,
     CONF_ACTION_PREFIX,
     DEFAULT_ACTION_PREFIX,
     DOMAIN,
     EXPIRES_ALWAYS,
     SERVICE_LIST,
     SERVICE_REMOVE,
-    SERVICE_RUN_RULE,
+    SERVICE_ENSURE_STATE,
     SERVICE_UPSERT,
     TaskStatus,
 )
+from .ensure import async_ensure_state
 from .store import TaskDefinition, TaskManager, as_aware
 
 UPSERT_SCHEMA = probatio.Schema(
@@ -70,7 +74,12 @@ LIST_SCHEMA = probatio.Schema(
     }
 )
 
-RUN_RULE_SCHEMA = probatio.Schema({probatio.Required(ATTR_RULE_ID): cv.string})
+ENSURE_STATE_SCHEMA = probatio.Schema(
+    {
+        probatio.Required(ATTR_ENTITY_ID): cv.entity_ids,
+        probatio.Required(ATTR_STATE): probatio.In(["on", "off"]),
+    }
+)
 
 
 def _get_manager(hass: HomeAssistant) -> tuple[TaskManager, str]:
@@ -90,7 +99,7 @@ async def _async_upsert(call: ServiceCall) -> ServiceResponse:
     data = call.data
 
     action: str = data[ATTR_ACTION]
-    if not action.startswith(prefix):
+    if not action.startswith(prefix) and action not in BUILTIN_ACTIONS:
         raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="action_not_allowed",
@@ -139,19 +148,12 @@ async def _async_list(call: ServiceCall) -> ServiceResponse:
     return {ATTR_TASKS: [task.as_dict() for task in tasks]}
 
 
-async def _async_run_rule(call: ServiceCall) -> ServiceResponse:
-    _get_manager(call.hass)
-    entry = call.hass.config_entries.async_loaded_entries(DOMAIN)[0]
-    outcome = await entry.runtime_data.rules.async_run_now(call.data[ATTR_RULE_ID])
-    if outcome is None:
-        raise ServiceValidationError(
-            translation_domain=DOMAIN,
-            translation_key="unknown_rule",
-            translation_placeholders={"rule_id": call.data[ATTR_RULE_ID]},
-        )
+async def _async_ensure_state(call: ServiceCall) -> ServiceResponse:
+    ok, reason = await async_ensure_state(
+        call.hass, call.data[ATTR_ENTITY_ID], call.data[ATTR_STATE]
+    )
     if not call.return_response:
         return None
-    ok, reason = outcome
     return {"ok": ok, "reason": reason}
 
 
@@ -181,8 +183,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN,
-        SERVICE_RUN_RULE,
-        _async_run_rule,
-        schema=RUN_RULE_SCHEMA,
+        SERVICE_ENSURE_STATE,
+        _async_ensure_state,
+        schema=ENSURE_STATE_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )

@@ -14,9 +14,6 @@
       },
       "tasks": {
         "default": "mdi:format-list-checks"
-      },
-      "rules": {
-        "default": "mdi:calendar-sync"
       }
     }
   },
@@ -30,8 +27,8 @@
     "list": {
       "service": "mdi:format-list-bulleted"
     },
-    "run_rule": {
-      "service": "mdi:play-circle-outline"
+    "ensure_state": {
+      "service": "mdi:toggle-switch-outline"
     }
   }
 }

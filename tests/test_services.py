@@ -221,3 +221,28 @@ async def test_cleanup_removes_old_finished_tasks(
     await hass.async_block_till_done()
 
     assert [task["id"] for task in await list_tasks(hass)] == ["open"]
+
+
+async def test_rule_task_in_past_is_not_created(
+    hass: HomeAssistant, setup_entry: MockConfigEntry
+) -> None:
+    """A rule plans only the future: its task in the past is skipped."""
+    response = await upsert(
+        hass, id="t", due="2026-10-21T11:00:00+00:00", rule_id="automation.floor"
+    )
+    assert response == {"result": "past", "task": None}
+    assert await list_tasks(hass) == []
+
+
+async def test_builtin_action_is_allowed(
+    hass: HomeAssistant, setup_entry: MockConfigEntry
+) -> None:
+    """zaya_planner.ensure_state can be a task's action without a script."""
+    response = await upsert(
+        hass,
+        id="t",
+        due=DUE,
+        action="zaya_planner.ensure_state",
+        params={"entity_id": ["switch.floor"], "state": "on"},
+    )
+    assert response["result"] == "created"
