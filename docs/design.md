@@ -1,7 +1,7 @@
 # Zaya Planner: family schedule and house plan
 
 Design of the next part of Zaya Planner, agreed before writing code.
-What exists today (task store, executor, blueprints, `ensure_state`) is described in the
+What exists today (task store, executor, `plan_window`, `ensure_state`) is described in the
 [README](../README.md); this document is about what is built on top of it.
 
 ## 1. Goal
@@ -19,7 +19,7 @@ Principles:
 
 - Nothing is decided by matching text. Trips, wake-ups and their links are real data fields.
 - No logic is hard-wired per person or per device: what heats which floor, who is woken,
-  which car is charged is set up with standard Home Assistant tools (automations, blueprints,
+  which car is charged is set up with standard Home Assistant tools (automations,
   device settings).
 - What can be computed is computed; the person only says what they know (“school at 8:00,
   I drive, 40 minutes on the way”).
@@ -166,25 +166,21 @@ Anchors are sensors (timestamps) that rules use:
 
 ### 3.8 Rules
 
-Rules stay ordinary automations, made with the visual editor or from blueprints:
+Rules stay ordinary automations, made with the visual editor: the trigger **“Zaya Planner:
+time to plan”** (it fires after a start, when automations are saved, when a task ends, when the
+house plan changes and every 15 minutes), any conditions, and one action:
 
-- **Window around an anchor** (new blueprint): devices on from X minutes before to Y minutes
-  after one or more anchors (the earliest is used), with any extra conditions.
-  Floor heating: “bathroom floor, −20/+20 min around Dad's and Mum's wake-up, only if the
-  bathroom is below 22 °C”.
-- **Charge by departure** (exists): departure = `sensor.zaya_leaf_first_departure`; the
-  charging time comes from the car's state of charge as today.
-- **Lights at night** (exists).
+- **`plan_window`**: devices on from a start to an end. Each end is a time of day (with days),
+  the time of an entity + offset (wake-ups, departures, the sun; the earliest of several), or
+  minutes counted from the other end (a charging time, a length). Examples: floor heating
+  −20/+20 min around Dad's and Mum's wake-up “only if the bathroom is below 22 °C”; the Leaf
+  charged 30 min before its first departure; lights from sunset + 30 to sunrise − 30.
+- **`upsert`** for a single moment (a time, or the time of an entity + offset).
 
 Rules plan tasks ahead, so the house plan shows them and the executor runs them reliably.
-
-For reactions that do not need planning, each person's device has **device triggers**:
-“event starts”, “event ends”, “wake-up”, “departure”, each with an offset — chosen in the
-automation editor without text matching.
-
-A trigger **“Zaya Planner: time to plan”** fires when anchors change, after a restart and
-after automations are saved; rules use it instead of the low-level `automation_reloaded`.
-`upsert` leaves unchanged tasks alone (`result: unchanged`), so planning again costs nothing.
+Planning again with nothing changed changes nothing (`unchanged`), so rules may run often.
+Reactions at the moment itself (without planning) use ordinary triggers; person device triggers
+(“wake-up”, “departure” with an offset) are not needed for now.
 
 ### 3.9 Alarms
 
