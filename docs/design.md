@@ -95,8 +95,8 @@ When a key is repeated, the first line counts. Values are text, kept as written.
 **Durations** are written in the Home Assistant format, the one the template filter
 `as_timedelta` reads: `00:40:00` (40 minutes), `01:00:00` (an hour), `1:10:00`, or ISO 8601
 `PT40M`. Zaya Planner reads them with the same Home Assistant function, so a value means the same
-in a moment and in a template. Beware: `40` is 40 seconds and `1:00` is one minute; a duration
-under a minute used as an offset is reported as an error (“did you mean 00:40:00?”).
+in a moment and in a template. No checks of our own: `40` is 40 seconds and `1:00` is one
+minute, exactly as in Home Assistant.
 
 ### 3.3 Filters
 
