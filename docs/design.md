@@ -142,12 +142,12 @@ A moment is a timestamp sensor `sensor.zaya_<name>` made on the integration page
 | Edge | start / end of the event |
 | Offset | − `В пути` (a key from the dictionary, its value a duration, 3.2) and/or ± minutes |
 | Which | the first of each day / every one |
-| Cancellations | filter of cancelling events, e.g. `#отмена` (optional) |
+| Cancellations | tags of cancelling events, e.g. `#отмена` (optional) |
 
 The sensor shows the next moment (with “the first of each day”: the first moment of the next day
 that has one). Its attributes are the event's title, calendar, tags and attributes.
 
-Cancellations are events in the same calendar that match the cancellations filter (“Frost”,
+Cancellations are events in the same calendar with any of the cancellation tags (“Frost”,
 “Vacation”, “No first two lessons”), all-day or timed, one day or many:
 
 - an event entirely inside a cancellation does not count;
@@ -160,11 +160,13 @@ Cancellations are events in the same calendar that match the cancellations filte
 | Field | Example |
 |---|---|
 | Name | Dad: wake-up |
-| Moments | Leaf: morning departure (− 60 min), Dad's own wake-up |
-| Which | the earliest |
+| Moments | Dad: wake-up for the departure, Dad's own wake-up (any timestamp sensors) |
+| Plus minutes | 0 |
 
-Each source has its own offset. So “wake-up = departure − getting ready” and “the earliest of
-several wake-ups” are made from moments, not hard-wired.
+The earliest of the moments plus one offset. A source that needs an offset of its own is a
+moment of its own: “Dad: wake-up for the departure” is a moment from calendars, the start of the
+first `#leaf` event minus `В пути` minus 60 minutes. So “wake-up = departure − getting ready”
+and “the earliest of several wake-ups” are made from moments, not hard-wired.
 
 Moments are recalculated when a chosen calendar changes, when the options or a moment change,
 every few minutes and after a restart. A change of any moment fires “time to plan”.
@@ -234,7 +236,7 @@ On upgrade the car entries and the saved person settings are removed; nothing is
 3. ✅ `Key: value` lines: parse / build / find.
 4. ✅ **Dictionary and calendars**: options “Calendars”, “Tags”, “Keys”; tags and attributes read
    from the chosen calendars; “Errors in events”; `find_events`.
-5. **Moments**: subentries “from calendars” (with cancellations) and “from other moments”;
+5. ✅ **Moments**: subentries “from calendars” (with cancellations) and “from other moments”;
    sensors; “time to plan” on a change; moment problems in “Errors in events”.
 6. ✅ **Clean-up** (done before step 5): people, cars, own calendars, house plan, alarm and fixed keys removed;
    README updated.

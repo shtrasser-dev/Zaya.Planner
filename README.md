@@ -7,7 +7,8 @@ retries on failure and reports what went wrong. Everything planned is shown on t
 
 > **Status:** tasks are stored, shown and run when due, with retries and notifications;
 > rules are ordinary automations with one action, `plan_window`; events of calendars of your
-> choice are read with your own tags. Next: moments worked out from events. See [Roadmap](#roadmap).
+> choice are read with your own tags, and moments for rules are worked out from them.
+> See [Roadmap](#roadmap).
 
 ## How it works
 
@@ -52,7 +53,7 @@ Requires Home Assistant 2026.10 or newer.
 A rule is an ordinary automation, made in the visual editor:
 
 - **When**: the trigger **“Zaya Planner: time to plan”** (Device → Zaya Planner). It fires when
-  Home Assistant has started, when automations are saved, when a task ends, and every 15 minutes
+  Home Assistant has started, when automations are saved, when a task ends, when a moment changes, and every 15 minutes
   as a safety net.
 - **And if**: any conditions of your own (“only if the bathroom is below 22 °C”).
 - **Then**: the action **`zaya_planner.plan_window`**: keep devices on from a start to an end.
@@ -158,8 +159,39 @@ next 8 days of the chosen calendars: a tag not in the dictionary, a key with no 
 event longer than a day (almost always a wrong date), a chosen calendar that is not found.
 A mistake repeated in a series is one error. A new error is notified (see *Notifications*).
 
-Next: **moments** worked out from events (“the first event of the day with `#leaf`, minus
-`Travel`”), as timestamp sensors for rules.
+### Moments
+
+A **moment** is a timestamp sensor `sensor.zaya_<name>` for rules: “the Leaf leaves for
+school”, “Dad gets up”. Moments are made with **Add moment** on the integration page, and
+changed or deleted there. There are two kinds:
+
+**From calendar events**:
+
+| Field | Example |
+|---|---|
+| Name | Leaf departure |
+| Calendars | Masha, Dad (some of the chosen calendars; empty: all) |
+| Tags | `#leaf`, `#take_there` (from the dictionary) |
+| Attributes | optional conditions: `Key: value` or `Key` |
+| Edge of the event | start / end |
+| Minus or plus the attribute | `Travel` (its value is a duration) |
+| And minutes | ± minutes |
+| Which events | the first of each day / every one |
+| Cancellations | tags of cancelling events, e.g. `#frost` |
+
+The sensor shows the next moment; its attributes are the event's title, calendar, tags and
+attributes, and the upcoming moments. Events with a cancellation tag cancel what happens in
+their time **in the same calendar**: an event entirely inside does not count, a start inside
+moves to the cancellation's end, an end inside moves to its start.
+
+**The earliest of other moments**: timestamp sensors (moments of Zaya Planner or any others)
+plus minutes. E.g. “Dad: wake-up” = the earliest of “wake-up for the departure” and Dad's
+own wake-up.
+
+Moments are worked out again when a chosen calendar changes and every 5 minutes. When a
+moment changes, “time to plan” fires, so rules with `plan_window` plan again. An event that
+matches a moment but lacks its attribute, or has one that is not a duration, is listed in
+*Errors in events*.
 
 ## Task
 
@@ -330,7 +362,7 @@ content: >-
 3. ✅ Rules as automations: trigger “time to plan”, `zaya_planner.plan_window`,
    built-in `zaya_planner.ensure_state`.
 4. Calendars (see [design](docs/design.md)): ✅ chosen calendars, tag dictionary, errors in
-   events, `find_events`; next: moments.
+   events, `find_events`; ✅ moments.
 5. Moving the real house over, one task at a time.
 
 ## Development
