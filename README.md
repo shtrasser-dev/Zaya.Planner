@@ -5,17 +5,17 @@ when a task is due it switches the devices (or calls a script), waits until they
 retries on failure and reports what went wrong. Everything planned is shown on the
 “Schedule” calendar and in sensors.
 
-> **Status: stage 3 of 6.** Tasks are stored, shown and run when due, with retries and
-> notifications. Rules are ordinary automations, with ready-made blueprints.
-> See [Roadmap](#roadmap).
+> **Status:** tasks are stored, shown and run when due, with retries and notifications;
+> rules are ordinary automations with one action, `plan_window`; the family schedule
+> (people, calendars, trips) gives the house plan. See [Roadmap](#roadmap).
 
 ## How it works
 
 - **Task**: “at this time turn these devices on” (or “run this script with these parameters”).
   Tasks are created with the `zaya_planner.upsert` action.
 - **Rule**: an ordinary Home Assistant **automation** that plans tasks: when and what to do.
-  Typical rules are made from the [blueprints](#rules-automations-and-blueprints) in this
-  repository with a form, without YAML.
+  It is made in the visual editor: trigger “Zaya Planner: time to plan”, your conditions,
+  and the action `zaya_planner.plan_window` (see [Rules](#rules-automations-with-plan_window)).
 - **Executor**: part of the integration. When a task is due it runs the task's action,
   waits for confirmation, retries with pauses, closes the task and logs the outcome.
 
@@ -30,7 +30,6 @@ Install with HACS as a custom repository:
 1. HACS → ⋮ → **Custom repositories** → `https://github.com/shtrasser-dev/Zaya.Planner`, type **Integration**.
 2. Find **Zaya Planner**, download it and restart Home Assistant.
 3. **Settings → Devices & services → Add integration → Zaya Planner.**
-4. Import the blueprints you need (see [Rules](#rules-automations-and-blueprints)).
 
 Requires Home Assistant 2026.10 or newer.
 
@@ -45,62 +44,88 @@ Requires Home Assistant 2026.10 or newer.
 | Keep finished tasks | 3 days | Older finished tasks are removed |
 | Notifications | empty | Action for notifications about failing tasks, e.g. `notify.mobile_app_phone` or a script with `title` and `message` fields. Empty: a notification in Home Assistant |
 
-## Rules: automations and blueprints
+## Rules: automations with `plan_window`
 
-A rule is an automation: it lives in **Settings → Automations & scenes** with all the others,
-is edited in the visual editor, can be turned off, and its runs are in its traces.
-The automation calls `zaya_planner.upsert` to plan tasks; the planner runs them.
+A rule is an ordinary automation, made in the visual editor:
 
-### Blueprints
+- **When**: the trigger **“Zaya Planner: time to plan”** (Device → Zaya Planner). It fires when
+  Home Assistant has started, when automations are saved, when a task ends, when the house plan
+  changes, and every 15 minutes as a safety net.
+- **And if**: any conditions of your own (“only if the bathroom is below 22 °C”).
+- **Then**: the action **`zaya_planner.plan_window`**: keep devices on from a start to an end.
 
-Import a blueprint: **Settings → Automations & scenes → Blueprints → Import blueprint**, paste its URL.
-Then **Create automation** from it and fill in the form.
+Planning again with nothing changed changes nothing, so the rule may run as often as it likes.
 
-| Blueprint | URL | What it does |
-|---|---|---|
-| On for a while | `https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/on_for_a_while.yaml` | Turns devices on at a set time for N minutes on the chosen days (floor heating, a pump) |
-| Lights at night | `https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/night_light.yaml` | Keeps lights on from sunset to sunrise, with offsets |
-| Charge by departure | `https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/charge_by_departure.yaml` | Charges so that charging ends before a departure (from a helper or a sensor) |
-| Window around an anchor | `https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/window_around_anchor.yaml` | Devices on from X min before to Y min after the earliest of chosen anchors (e.g. floor heating around wake-ups), with optional conditions |
-| Charge a Zaya car | `https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/charge_zaya_car.yaml` | Charges a car of the family schedule for its first departure of the day; charger and margin are the car's settings |
+### `zaya_planner.plan_window`: plan a window
 
-Each blueprint plans two tasks, “on” and “off” (the “off” runs however late), and plans
-again when a task of the rule ends, at a fixed time every day, after Home Assistant starts
-and whenever any automation is saved. Planning again is safe: tasks are identified by
-`id`, so `upsert` changes them instead of adding new ones. If Home Assistant was off when
-a window started, the devices are turned on as soon as it is back. A planned “off” is
-never cancelled by a rule.
+The window that is going on now, or the next one. Its **start** is one of:
 
-### Your own rules
+- a **time** of day (with **days**): 06:40 on weekdays;
+- **the time of an entity** + offset: a wake-up − 20 min, sunset + 30 min (with several
+  entities the earliest counts);
+- **minutes before the end** (a number, or a sensor with the number as a fallback): a charging time.
 
-Any automation or script can plan tasks. Pass the automation's id as `rule_id`
-(`{{ this.entity_id }}`): tasks of a rule are never planned in the past (`result: past`),
-and `zaya_planner.remove` with that `rule_id` cancels what the rule planned.
+Its **end** is one of:
+
+- a **time** of day (the first one after the start);
+- **the time of an entity** + offset: sunrise − 30 min, a departure − 30 min;
+- **minutes after the start** (a number or a sensor): the length.
+
+What the action takes care of:
+
+- an “on” task at the start and an “off” task at the end; the “off” runs however late;
+- each window has its own “off”: when an anchor jumps to the next day (a wake-up is over),
+  the window that is open still ends as planned;
+- if there is no window any more (the anchor has no time), the planned “on” is cancelled and
+  a planned “off” stays;
+- planned inside the window (e.g. after a restart): devices that are not on are turned on right away.
+
+Examples:
 
 ```yaml
+# Floor heating 20 minutes around Dad's or Mum's wake-up, whichever is earlier
 alias: Floor heating
 triggers:
-  - trigger: time
-    at: "20:00:00"
+  - trigger: device
+    domain: zaya_planner
+    device_id: <Zaya Planner device>
+    type: time_to_plan
+conditions:
+  - condition: numeric_state
+    entity_id: sensor.bathroom_temperature
+    below: 22
 actions:
-  - action: zaya_planner.upsert
+  - action: zaya_planner.plan_window
     data:
-      id: floor_on
-      title: Floor heating on
-      due: "{{ (today_at('06:40') + timedelta(days=1)).isoformat() }}"
-      action: zaya_planner.ensure_state
-      params: { entity_id: switch.floor_heating, state: "on" }
-      rule_id: "{{ this.entity_id }}"
-  - action: zaya_planner.upsert
-    data:
-      id: floor_off
-      title: Floor heating off
-      due: "{{ (today_at('07:00') + timedelta(days=1)).isoformat() }}"
-      expires: always   # turning off must happen however late
-      action: zaya_planner.ensure_state
-      params: { entity_id: switch.floor_heating, state: "off" }
-      rule_id: "{{ this.entity_id }}"
+      name: Floor heating
+      devices: [switch.floor_heating]
+      start_entity: [sensor.zaya_dad_next_wake_up, sensor.zaya_mum_next_wake_up]
+      start_offset: -20
+      duration: 40
 ```
+
+```yaml
+# Other windows, same trigger
+- action: zaya_planner.plan_window      # 06:40–07:00 on weekdays
+  data: { name: Pump, devices: [switch.pump], start_time: "06:40", duration: 20,
+          days: [mon, tue, wed, thu, fri] }
+- action: zaya_planner.plan_window      # lights from sunset + 30 to sunrise − 30
+  data: { name: Gate light, devices: [switch.gate_light],
+          start_entity: [sensor.sun_next_setting], start_offset: 30,
+          end_entity: [sensor.sun_next_rising], end_offset: -30 }
+- action: zaya_planner.plan_window      # charged 30 min before the first departure
+  data: { name: Leaf charging, devices: [switch.leaf_charger],
+          end_entity: [sensor.zaya_leaf_first_departure], end_offset: -30,
+          start_before_end_entity: sensor.leaf_charge_minutes, start_before_end: 120 }
+```
+
+Tasks of a window are `window.<name>:on` and `window.<name>:off:<date>`; `rule_id` is
+`window.<name>`, so `zaya_planner.remove` with it cancels what the window planned.
+
+### Single moments
+
+For one action at one moment (“turn the boiler off at 23:00”, “notify 30 minutes before the
+departure”) use `zaya_planner.upsert` with a time or the time of an entity + offset.
 
 ## Family schedule (in progress)
 
@@ -142,11 +167,9 @@ up to date on every change.
   at that time the phone gets an alarm for tomorrow's wake-up. If the wake-up moves later, the
   phone gets a notification to fix the alarm.
 
-**Rules from the plan** (step 3): blueprints *Window around an anchor* (floor heating around
-wake-ups) and *Charge a Zaya car* (for its first departure of the day; the car's
-*First departure of the day* sensor carries its charger and margin). The Zaya Planner device has
-a trigger *House plan changed* for your own automations. `upsert` with the same data
-answers `result: unchanged` and changes nothing, so rules can plan again as often as they like.
+**Rules from the plan** (step 3): anchors are used by `plan_window` (see
+[Rules](#rules-automations-with-plan_window)); the car's *First departure of the day* sensor also
+carries its charger and margin as attributes.
 
 Next: weekly timetables, then the dashboard card.
 
@@ -294,17 +317,18 @@ content: >-
 1. ✅ Skeleton, task store, `upsert` / `remove` / `list`, calendar, sensors.
 2. ✅ Executor: running tasks when due, waiting for confirmation, retries, notifications,
    `zaya_planner_task_done` / `zaya_planner_task_failed` events, logbook.
-3. ✅ Rules as automations: blueprints “on for a while”, “lights at night”, “charge by departure”;
+3. ✅ Rules as automations: trigger “time to plan”, `zaya_planner.plan_window`,
    built-in `zaya_planner.ensure_state`.
-4. Family schedule: people, cars, person calendars with trips (in progress, see [design](docs/design.md)).
-5. House plan from the family schedule, then a custom card.
+4. Family schedule (see [design](docs/design.md)): ✅ people, cars, person calendars with trips;
+   ✅ house plan; next: weekly timetables.
+5. A custom dashboard card.
 6. Moving the real house over, one task at a time.
 
 ## Development
 
 Tests use `pytest` and [pytest-homeassistant-custom-component](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component)
 and run in GitHub Actions on every push (Home Assistant does not run on Windows).
-The blueprints are tested too: each one is set up as a real automation.
+Windows are tested with real automations triggered by “time to plan”.
 Locally, on Linux or macOS with Python 3.14:
 
 ```bash

@@ -137,6 +137,17 @@
       "options": {
         "this_and_future": "This and following"
       }
+    },
+    "weekday": {
+      "options": {
+        "mon": "Monday",
+        "tue": "Tuesday",
+        "wed": "Wednesday",
+        "thu": "Thursday",
+        "fri": "Friday",
+        "sat": "Saturday",
+        "sun": "Sunday"
+      }
     }
   },
   "services": {
@@ -356,6 +367,72 @@
           "description": "End of the period."
         }
       }
+    },
+    "plan_window": {
+      "name": "Plan a window",
+      "description": "Keeps devices on from a start to an end: the window that is going on now or the next one. Call it from an automation triggered by “Zaya Planner: time to plan”; calling it again with nothing changed changes nothing.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Name of the window, e.g. Floor heating. Tasks and the calendar use it; one name, one window."
+        },
+        "devices": {
+          "name": "Devices",
+          "description": "Turned on for the window and off after it; each one must confirm."
+        },
+        "start_time": {
+          "name": "Start: time",
+          "description": "A time of day (with the days below)."
+        },
+        "start_entity": {
+          "name": "Start: at the time of",
+          "description": "E.g. Zaya “Wake-up” of one or more people (the earliest counts), Sun “Next sunset”."
+        },
+        "start_offset": {
+          "name": "Start: offset",
+          "description": "Minutes after (+) or before (−) that time."
+        },
+        "start_before_end": {
+          "name": "Start: minutes before the end",
+          "description": "E.g. a charging time. With a sensor below this is used when it has no value."
+        },
+        "start_before_end_entity": {
+          "name": "Start: minutes before the end from",
+          "description": "A sensor with the minutes, e.g. the charging time."
+        },
+        "end_time": {
+          "name": "End: time",
+          "description": "A time of day; the first one after the start."
+        },
+        "end_entity": {
+          "name": "End: at the time of",
+          "description": "E.g. Sun “Next sunrise”, a car's “First departure of the day”."
+        },
+        "end_offset": {
+          "name": "End: offset",
+          "description": "Minutes after (+) or before (−) that time."
+        },
+        "duration": {
+          "name": "End: minutes after the start",
+          "description": "Length of the window."
+        },
+        "duration_entity": {
+          "name": "End: minutes after the start from",
+          "description": "A sensor with the length."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Days for the time of day (of the start, or of the end when the start is counted back from it)."
+        }
+      },
+      "sections": {
+        "start": {
+          "name": "Start"
+        },
+        "end": {
+          "name": "End"
+        }
+      }
     }
   },
   "exceptions": {
@@ -388,6 +465,9 @@
     },
     "not_a_person_calendar": {
       "message": "This works on person calendars only, not on the schedule."
+    },
+    "window_sources": {
+      "message": "Give the start one way (a time, an entity's time, or minutes before the end) and the end one way (a time, an entity's time, or minutes after the start); not both as minutes from each other."
     }
   },
   "config_subentries": {
@@ -423,7 +503,7 @@
   },
   "device_automation": {
     "trigger_type": {
-      "plan_changed": "House plan changed"
+      "time_to_plan": "Time to plan"
     }
   }
 }

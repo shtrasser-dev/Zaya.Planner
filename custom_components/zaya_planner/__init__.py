@@ -102,6 +102,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) 
 
     # Run tasks once Home Assistant has started: scripts are loaded by then
     entry.async_on_unload(async_at_started(hass, executor.async_start))
+    entry.async_on_unload(async_at_started(hass, entry.runtime_data.house.async_started))
     # New settings, people or cars: set up again
     entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
     return True

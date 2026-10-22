@@ -248,10 +248,10 @@ async def test_android_alarm(
     assert "06:00" in calls[1]["message"] and "06:20" in calls[1]["message"]
 
 
-async def test_plan_changed_device_trigger(
+async def test_time_to_plan_device_trigger(
     hass: HomeAssistant, family: MockConfigEntry
 ) -> None:
-    """The Zaya Planner device has a trigger “house plan changed”."""
+    """The Zaya Planner device has a trigger “time to plan”; a plan change fires it."""
     from homeassistant.components.device_automation import DeviceAutomationType
     from homeassistant.helpers import device_registry as dr
     from pytest_homeassistant_custom_component.common import (
@@ -269,7 +269,7 @@ async def test_plan_changed_device_trigger(
     triggers = await async_get_device_automations(
         hass, DeviceAutomationType.TRIGGER, main.id
     )
-    assert [t["type"] for t in triggers] == ["plan_changed"]
+    assert [t["type"] for t in triggers] == ["time_to_plan"]
 
     assert await async_setup_component(
         hass,
@@ -280,7 +280,7 @@ async def test_plan_changed_device_trigger(
                     "platform": "device",
                     "domain": DOMAIN,
                     "device_id": main.id,
-                    "type": "plan_changed",
+                    "type": "time_to_plan",
                 },
                 "actions": {"event": "test_plan_changed"},
             }
@@ -291,4 +291,4 @@ async def test_plan_changed_device_trigger(
         hass, MASHA, summary="School", start="2026-10-26 08:00:00",
         end="2026-10-26 13:45:00", trip="drop", travel_minutes=40,
     )
-    assert len(fired) == 1
+    assert len(fired) >= 1

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import Any
 
 import probatio
 
@@ -16,7 +17,7 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv, service
-from homeassistant.util import dt as dt_util
+from homeassistant.util import dt as dt_util, slugify
 
 from .const import (
     ATTR_ACTION,
@@ -45,6 +46,7 @@ from .const import (
     DOMAIN,
     EXPIRES_ALWAYS,
     SERVICE_LIST,
+    SERVICE_PLAN_WINDOW,
     SERVICE_REMOVE,
     SERVICE_SET_EVENT_DETAILS,
     SERVICE_ADD_EVENT,
@@ -56,7 +58,9 @@ from .const import (
     TripKind,
 )
 from .ensure import async_ensure_state
+from .messages import message
 from .store import TaskDefinition, TaskManager, as_aware
+from .window import WEEKDAYS, Edge, next_window
 
 UPSERT_SCHEMA = probatio.All(
     probatio.Schema(
@@ -156,6 +160,17 @@ def _get_manager(hass: HomeAssistant) -> tuple[TaskManager, str]:
 
 
 def _entity_time(hass: HomeAssistant, entity_id: str) -> datetime:
+    """Return the moment an entity shows, or explain that it shows none."""
+    if (moment := entity_moment(hass, entity_id)) is not None:
+        return moment
+    raise ServiceValidationError(
+        translation_domain=DOMAIN,
+        translation_key="due_entity_no_time",
+        translation_placeholders={"entity_id": entity_id},
+    )
+
+
+def entity_moment(hass: HomeAssistant, entity_id: str) -> datetime | None:
     """Return the moment an entity shows: a timestamp, a date and time, or a time.
 
     A time without a date (an input_datetime with time only) means its next
@@ -173,11 +188,7 @@ def _entity_time(hass: HomeAssistant, entity_id: str) -> datetime:
             if moment <= now:
                 moment += timedelta(days=1)
             return dt_util.as_utc(moment)
-    raise ServiceValidationError(
-        translation_domain=DOMAIN,
-        translation_key="due_entity_no_time",
-        translation_placeholders={"entity_id": entity_id},
-    )
+    return None
 
 
 async def _async_upsert(call: ServiceCall) -> ServiceResponse:
@@ -304,8 +315,145 @@ def async_setup_services(hass: HomeAssistant) -> None:
         )
     hass.services.async_register(
         DOMAIN,
+        SERVICE_PLAN_WINDOW,
+        _async_plan_window,
+        schema=PLAN_WINDOW_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_ENSURE_STATE,
         _async_ensure_state,
         schema=ENSURE_STATE_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
+
+
+# ---------------------------------------------------------------- windows
+
+WINDOW_FIELDS = {
+    probatio.Required("name"): cv.string,
+    probatio.Required(ATTR_DEVICES): cv.entity_ids,
+    probatio.Optional("start_time"): cv.time,
+    probatio.Optional("start_entity"): cv.entity_ids,
+    probatio.Optional("start_offset", default=0): probatio.Coerce(int),
+    probatio.Optional("start_before_end"): probatio.All(probatio.Coerce(int), probatio.Range(min=1)),
+    probatio.Optional("start_before_end_entity"): cv.entity_id,
+    probatio.Optional("end_time"): cv.time,
+    probatio.Optional("end_entity"): cv.entity_ids,
+    probatio.Optional("end_offset", default=0): probatio.Coerce(int),
+    probatio.Optional("duration"): probatio.All(probatio.Coerce(int), probatio.Range(min=1)),
+    probatio.Optional("duration_entity"): cv.entity_id,
+    probatio.Optional("days", default=list(WEEKDAYS)): probatio.All(
+        cv.ensure_list, [probatio.In(WEEKDAYS)]
+    ),
+}
+
+PLAN_WINDOW_SCHEMA = probatio.Schema(WINDOW_FIELDS)
+
+START_SOURCES = ("start_time", "start_entity", "start_before_end", "start_before_end_entity")
+END_SOURCES = ("end_time", "end_entity", "duration", "duration_entity")
+
+
+def _minutes(hass: HomeAssistant, entity_id: str | None, fallback: int | None) -> int | None:
+    """Return minutes shown by an entity, or the fallback number."""
+    if entity_id is not None and (state := hass.states.get(entity_id)) is not None:
+        try:
+            return int(float(state.state))
+        except ValueError:
+            pass
+    return fallback
+
+
+def _edge(hass: HomeAssistant, data: dict[str, Any], side: str) -> Edge | None:
+    """Return the start or the end of a window; None when its length is unknown."""
+    if (clock := data.get(f"{side}_time")) is not None:
+        return Edge(time=clock)
+    if entities := data.get(f"{side}_entity"):
+        return Edge(
+            moments=tuple(entity_moment(hass, entity) for entity in entities),
+            offset=timedelta(minutes=data[f"{side}_offset"]),
+        )
+    length_key = "start_before_end" if side == "start" else "duration"
+    minutes = _minutes(hass, data.get(f"{length_key}_entity"), data.get(length_key))
+    return Edge(length=timedelta(minutes=minutes)) if minutes else None
+
+
+def _check_window_sources(data: dict[str, Any]) -> None:
+    """One source for each end; not both ends counted from each other."""
+    def sources(keys: tuple[str, ...]) -> int:
+        given = {k for k in keys if k in data}
+        # A length given as a number and as an entity is one source (fallback)
+        if {"start_before_end", "start_before_end_entity"} <= given:
+            given.discard("start_before_end")
+        if {"duration", "duration_entity"} <= given:
+            given.discard("duration")
+        return len(given)
+
+    relative_start = bool({"start_before_end", "start_before_end_entity"} & set(data))
+    relative_end = bool({"duration", "duration_entity"} & set(data))
+    if sources(START_SOURCES) != 1 or sources(END_SOURCES) != 1 or (
+        relative_start and relative_end
+    ):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="window_sources"
+        )
+
+
+async def _async_plan_window(call: ServiceCall) -> ServiceResponse:
+    """zaya_planner.plan_window: keep devices on from a start to an end."""
+    hass = call.hass
+    manager, _ = _get_manager(hass)
+    data = dict(call.data)
+    _check_window_sources(data)
+
+    name: str = data["name"]
+    key = f"window.{slugify(name) or 'window'}"
+    devices: list[str] = data[ATTR_DEVICES]
+    now = dt_util.utcnow()
+    start, end = _edge(hass, data, "start"), _edge(hass, data, "end")
+    window = (
+        next_window(start, end, data["days"], now, dt_util.get_default_time_zone())
+        if start is not None and end is not None
+        else None
+    )
+    if window is None:
+        # Nothing ahead: nothing to turn on (a planned “off” stays)
+        await manager.async_cancel(task_id=f"{key}:on")
+        response: dict[str, Any] = {"start": None, "end": None, "on": None, "off": None}
+        return response if call.return_response else None
+
+    response = {"start": window.start.isoformat(), "end": window.end.isoformat(), "on": None}
+    on_at = max(window.start, now + timedelta(seconds=30))
+    need_on = window.start > now or any(
+        not hass.states.is_state(device, "on") for device in devices
+    )
+    if need_on and on_at < window.end:
+        _, result = await manager.async_upsert(
+            TaskDefinition(
+                id=f"{key}:on",
+                due=on_at,
+                action=f"{DOMAIN}.{SERVICE_ENSURE_STATE}",
+                title=f"{name}: {message(hass, 'window_on')}",
+                params={ATTR_ENTITY_ID: devices, ATTR_STATE: "on"},
+                expires=window.end,
+                rule_id=key,
+            )
+        )
+        response["on"] = str(result)
+    # One “off” per window: when an anchor jumps to the next day, the window
+    # that is open still ends as planned
+    day = dt_util.as_local(window.end).date().isoformat()
+    _, result = await manager.async_upsert(
+        TaskDefinition(
+            id=f"{key}:off:{day}",
+            due=window.end,
+            action=f"{DOMAIN}.{SERVICE_ENSURE_STATE}",
+            title=f"{name}: {message(hass, 'window_off')}",
+            params={ATTR_ENTITY_ID: devices, ATTR_STATE: "off"},
+            expires=EXPIRES_ALWAYS,
+            rule_id=key,
+        )
+    )
+    response["off"] = str(result)
+    return response if call.return_response else None

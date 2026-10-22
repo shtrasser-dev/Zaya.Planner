@@ -51,6 +51,7 @@ SERVICE_UPSERT: Final = "upsert"
 SERVICE_REMOVE: Final = "remove"
 SERVICE_LIST: Final = "list"
 SERVICE_ENSURE_STATE: Final = "ensure_state"
+SERVICE_PLAN_WINDOW: Final = "plan_window"
 
 # Built-in action a task may run besides scripts: turn on/off and confirm
 BUILTIN_ACTIONS: Final = frozenset({f"{DOMAIN}.{SERVICE_ENSURE_STATE}"})
@@ -170,6 +171,9 @@ PLAN_HORIZON: Final = timedelta(days=8)
 PLAN_REFRESH_INTERVAL: Final = timedelta(minutes=5)
 SIGNAL_CALENDARS_UPDATED: Final = f"{DOMAIN}_calendars_updated"
 SIGNAL_PLAN_UPDATED: Final = f"{DOMAIN}_plan_updated"
-# Fired when departures or wake-ups change (device trigger “plan changed”)
-EVENT_PLAN_CHANGED: Final = f"{DOMAIN}_plan_changed"
+# Fired when rules should plan again (device trigger “time to plan”): the house
+# plan changed, a task ended, Home Assistant started, automations were saved,
+# and every TIME_TO_PLAN_INTERVAL as a safety net
+EVENT_TIME_TO_PLAN: Final = f"{DOMAIN}_time_to_plan"
+TIME_TO_PLAN_INTERVAL: Final = timedelta(minutes=15)
 DEFAULT_ALARM_TIME: Final = "21:00:00"

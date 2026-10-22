@@ -1,4 +1,4 @@
-"""Device triggers of Zaya Planner: “the house plan changed”."""
+"""Device triggers of Zaya Planner: “time to plan”."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.trigger import TriggerActionType, TriggerInfo
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, EVENT_PLAN_CHANGED
+from .const import DOMAIN, EVENT_TIME_TO_PLAN
 
-TRIGGER_PLAN_CHANGED = "plan_changed"
-TRIGGER_TYPES = {TRIGGER_PLAN_CHANGED}
+TRIGGER_TIME_TO_PLAN = "time_to_plan"
+TRIGGER_TYPES = {TRIGGER_TIME_TO_PLAN}
 
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
     {probatio.Required(CONF_TYPE): probatio.In(TRIGGER_TYPES)}
@@ -40,7 +40,7 @@ async def async_get_triggers(
             CONF_PLATFORM: "device",
             CONF_DEVICE_ID: device_id,
             CONF_DOMAIN: DOMAIN,
-            CONF_TYPE: TRIGGER_PLAN_CHANGED,
+            CONF_TYPE: TRIGGER_TIME_TO_PLAN,
         }
     ]
 
@@ -51,7 +51,7 @@ async def async_attach_trigger(
     action: TriggerActionType,
     trigger_info: TriggerInfo,
 ) -> CALLBACK_TYPE:
-    """Run the action when the house plan changes."""
+    """Run the action when rules should plan again."""
     job = HassJob(action)
     trigger_data = trigger_info["trigger_data"]
 
@@ -59,8 +59,8 @@ async def async_attach_trigger(
     def _handle_event(event: Event) -> None:
         hass.async_run_hass_job(
             job,
-            {"trigger": {**trigger_data, **config, "description": "house plan changed"}},
+            {"trigger": {**trigger_data, **config, "description": "time to plan"}},
             event.context,
         )
 
-    return hass.bus.async_listen(EVENT_PLAN_CHANGED, _handle_event)
+    return hass.bus.async_listen(EVENT_TIME_TO_PLAN, _handle_event)

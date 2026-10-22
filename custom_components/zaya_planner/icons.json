@@ -82,6 +82,9 @@
     },
     "get_events": {
       "service": "mdi:calendar-search"
+    },
+    "plan_window": {
+      "service": "mdi:clock-time-four-outline"
     }
   }
 }

@@ -241,3 +241,93 @@ get_events:
       required: true
       selector:
         datetime:
+
+plan_window:
+  fields:
+    name:
+      required: true
+      example: Floor heating
+      selector:
+        text:
+    devices:
+      required: true
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: [switch, light, input_boolean, fan]
+    start:
+      collapsed: false
+      fields:
+        start_time:
+          selector:
+            time:
+        start_entity:
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: sensor
+                  device_class: timestamp
+                - domain: input_datetime
+        start_offset:
+          default: 0
+          selector:
+            number:
+              min: -1440
+              max: 1440
+              unit_of_measurement: min
+              mode: box
+        start_before_end:
+          selector:
+            number:
+              min: 1
+              max: 1440
+              unit_of_measurement: min
+              mode: box
+        start_before_end_entity:
+          selector:
+            entity:
+              filter:
+                - domain: [sensor, input_number, number]
+    end:
+      collapsed: false
+      fields:
+        end_time:
+          selector:
+            time:
+        end_entity:
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: sensor
+                  device_class: timestamp
+                - domain: input_datetime
+        end_offset:
+          default: 0
+          selector:
+            number:
+              min: -1440
+              max: 1440
+              unit_of_measurement: min
+              mode: box
+        duration:
+          selector:
+            number:
+              min: 1
+              max: 1440
+              unit_of_measurement: min
+              mode: box
+        duration_entity:
+          selector:
+            entity:
+              filter:
+                - domain: [sensor, input_number, number]
+    days:
+      default: [mon, tue, wed, thu, fri, sat, sun]
+      selector:
+        select:
+          multiple: true
+          translation_key: weekday
+          options: [mon, tue, wed, thu, fri, sat, sun]

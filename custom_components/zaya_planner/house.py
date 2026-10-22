@@ -18,7 +18,10 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    EVENT_PLAN_CHANGED,
+    EVENT_TASK_DONE,
+    EVENT_TASK_FAILED,
+    EVENT_TIME_TO_PLAN,
+    TIME_TO_PLAN_INTERVAL,
     PLAN_HORIZON,
     PLAN_REFRESH_INTERVAL,
     SIGNAL_CALENDARS_UPDATED,
@@ -74,7 +77,36 @@ class HousePlanner:
             async_track_time_change(self.hass, self._async_minute, second=0)
         )
         self.entry.async_on_unload(self._async_cancel_next)
+        # Rules plan again when a task ends, when automations are saved, and
+        # every quarter of an hour; and once now that the plan is up
+        for event_type in (EVENT_TASK_DONE, EVENT_TASK_FAILED, "automation_reloaded"):
+            self.entry.async_on_unload(
+                self.hass.bus.async_listen(event_type, self._async_on_event)
+            )
+        self.entry.async_on_unload(
+            async_track_time_interval(
+                self.hass, self._async_on_interval, TIME_TO_PLAN_INTERVAL
+            )
+        )
         self._async_schedule_refresh()
+
+    @callback
+    def async_time_to_plan(self) -> None:
+        """Tell rules (automations) to plan again."""
+        self.hass.bus.async_fire(EVENT_TIME_TO_PLAN)
+
+    @callback
+    def async_started(self, _hass: HomeAssistant) -> None:
+        """Home Assistant has started: automations are listening now."""
+        self.async_time_to_plan()
+
+    @callback
+    def _async_on_event(self, _event: Any) -> None:
+        self.async_time_to_plan()
+
+    @callback
+    def _async_on_interval(self, _now: datetime) -> None:
+        self.async_time_to_plan()
 
     @callback
     def _async_schedule_refresh(self) -> None:
@@ -93,9 +125,9 @@ class HousePlanner:
             tuple((d.at, d.trip, d.uid, d.riders, d.driver, d.car) for d in self.plan.departures),
             tuple((w.at, w.person) for w in self.plan.wake_ups),
         )
-        if self._fingerprint is not None and fingerprint != self._fingerprint:
-            # For automations: time to plan again
-            self.hass.bus.async_fire(EVENT_PLAN_CHANGED)
+        if fingerprint != self._fingerprint:
+            # The first plan after a start counts as a change too
+            self.async_time_to_plan()
         self._fingerprint = fingerprint
 
     async def async_plan_for(self, start: datetime, end: datetime) -> Plan:
