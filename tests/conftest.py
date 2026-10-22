@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import freezegun
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -10,6 +11,10 @@ from custom_components.zaya_planner.const import DOMAIN
 from homeassistant.core import HomeAssistant
 
 from .common import NOW
+
+# The iCalendar library keeps real date and time types: freezing them inside it
+# breaks how it orders its encoders
+freezegun.configure(extend_ignore_list=["ical"])
 
 
 @pytest.fixture(autouse=True)
