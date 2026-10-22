@@ -18,13 +18,15 @@
           "lateness_hours": "Lateness limit",
           "action_prefix": "Allowed actions",
           "retention_days": "Keep finished tasks",
-          "notify_action": "Notifications"
+          "notify_action": "Notifications",
+          "people": "People"
         },
         "data_description": {
           "lateness_hours": "A task without its own `expires` is not run if it is later than this (for example after Home Assistant was off).",
           "action_prefix": "Only scripts whose entity id starts with this prefix can be tasks, for example script.plan_",
           "retention_days": "Finished tasks older than this are removed.",
-          "notify_action": "Action that sends notifications about failed tasks, for example notify.mobile_app_phone or a script with title and message fields. Empty: a notification in Home Assistant."
+          "notify_action": "Action that sends notifications about failed tasks, for example notify.mobile_app_phone or a script with title and message fields. Empty: a notification in Home Assistant.",
+          "people": "Who takes part in the family schedule (from Settings → People). Each gets a calendar and a device with settings."
         }
       }
     },
@@ -49,6 +51,33 @@
       "tasks": {
         "name": "Plan"
       }
+    },
+    "number": {
+      "getting_ready": {
+        "name": "Getting ready"
+      },
+      "charge_margin": {
+        "name": "Charged before departure"
+      }
+    },
+    "switch": {
+      "wake_for_trips": {
+        "name": "Wake up for trips"
+      }
+    },
+    "select": {
+      "car": {
+        "name": "Car",
+        "state": {
+          "none": "—"
+        }
+      },
+      "usually_drives": {
+        "name": "Usually drives",
+        "state": {
+          "none": "—"
+        }
+      }
     }
   },
   "selector": {
@@ -61,6 +90,26 @@
         "failed": "Failed",
         "skipped": "Skipped",
         "cancelled": "Cancelled"
+      }
+    },
+    "kind": {
+      "options": {
+        "event": "Event",
+        "wake": "Wake-up",
+        "cancel": "Cancellation"
+      }
+    },
+    "trip": {
+      "options": {
+        "none": "No trip",
+        "drop": "Take there",
+        "pickup": "Pick up",
+        "both": "Take there and pick up"
+      }
+    },
+    "recurrence_range": {
+      "options": {
+        "this_and_future": "This and following"
       }
     }
   },
@@ -171,6 +220,116 @@
           "description": "on or off"
         }
       }
+    },
+    "add_event": {
+      "name": "Add event",
+      "description": "Adds an event to a person's calendar, with trip fields.",
+      "fields": {
+        "summary": {
+          "name": "Title",
+          "description": "E.g. School."
+        },
+        "start": {
+          "name": "Start",
+          "description": "Local time."
+        },
+        "end": {
+          "name": "End",
+          "description": "Local time."
+        },
+        "rrule": {
+          "name": "Repeat",
+          "description": "iCalendar rule, e.g. FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR."
+        },
+        "description": {
+          "name": "Description",
+          "description": "Any text."
+        },
+        "location": {
+          "name": "Location",
+          "description": "Address, for information."
+        },
+        "kind": {
+          "name": "Kind",
+          "description": "An ordinary event, a wake-up, or a cancellation."
+        },
+        "trip": {
+          "name": "Trip",
+          "description": "Take there: departure to arrive by the start. Pick up: by the end."
+        },
+        "riders": {
+          "name": "Going",
+          "description": "People going. Default: the calendar's owner and who usually drives them."
+        },
+        "driver": {
+          "name": "Driving",
+          "description": "One of the people going. Default: the only one with a car."
+        },
+        "car": {
+          "name": "Car",
+          "description": "Name of a car. Default: the driver's car."
+        },
+        "travel_minutes": {
+          "name": "Travel time",
+          "description": "Minutes on the way, parking included. Default: as on the last trip with the same title."
+        }
+      }
+    },
+    "set_event_details": {
+      "name": "Set trip of an event",
+      "description": "Changes the trip and kind of an event in a person's calendar; other fields stay.",
+      "fields": {
+        "uid": {
+          "name": "Event ID",
+          "description": "uid from zaya_planner.get_events."
+        },
+        "recurrence_id": {
+          "name": "Occurrence",
+          "description": "recurrence_id of one occurrence; empty for the whole series."
+        },
+        "recurrence_range": {
+          "name": "Which occurrences",
+          "description": "Empty: only this occurrence. “This and following”: this and all later ones."
+        },
+        "kind": {
+          "name": "Kind",
+          "description": "An ordinary event, a wake-up, or a cancellation."
+        },
+        "trip": {
+          "name": "Trip",
+          "description": "Take there: departure to arrive by the start. Pick up: by the end."
+        },
+        "riders": {
+          "name": "Going",
+          "description": "People going. Default: the calendar's owner and who usually drives them."
+        },
+        "driver": {
+          "name": "Driving",
+          "description": "One of the people going. Default: the only one with a car."
+        },
+        "car": {
+          "name": "Car",
+          "description": "Name of a car. Default: the driver's car."
+        },
+        "travel_minutes": {
+          "name": "Travel time",
+          "description": "Minutes on the way, parking included. Default: as on the last trip with the same title."
+        }
+      }
+    },
+    "get_events": {
+      "name": "Get events with trips",
+      "description": "Returns events of a person's calendar with their trip fields.",
+      "fields": {
+        "start_date_time": {
+          "name": "From",
+          "description": "Start of the period."
+        },
+        "end_date_time": {
+          "name": "To",
+          "description": "End of the period."
+        }
+      }
     }
   },
   "exceptions": {
@@ -188,6 +347,52 @@
     },
     "due_entity_no_time": {
       "message": "{entity_id} has no time now."
+    },
+    "event_not_found": {
+      "message": "There is no event {uid} in this calendar."
+    },
+    "unknown_person": {
+      "message": "{person} does not take part in the schedule (see the integration settings)."
+    },
+    "unknown_car": {
+      "message": "There is no car “{car}” (see the integration's cars)."
+    },
+    "driver_not_rider": {
+      "message": "The driver must be one of the people going."
+    },
+    "not_a_person_calendar": {
+      "message": "This works on person calendars only, not on the schedule."
+    }
+  },
+  "config_subentries": {
+    "car": {
+      "initiate_flow": {
+        "user": "Add car"
+      },
+      "entry_type": "Car",
+      "step": {
+        "user": {
+          "title": "New car",
+          "data": {
+            "name": "Name",
+            "charger": "Charger"
+          },
+          "data_description": {
+            "name": "E.g. Leaf.",
+            "charger": "Switch that turns charging on; empty if the car is not charged at home."
+          }
+        },
+        "reconfigure": {
+          "title": "Car",
+          "data": {
+            "name": "Name",
+            "charger": "Charger"
+          },
+          "data_description": {
+            "charger": "Switch that turns charging on; empty if the car is not charged at home."
+          }
+        }
+      }
     }
   }
 }

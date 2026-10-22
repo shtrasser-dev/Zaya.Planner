@@ -8,14 +8,16 @@ from typing import override
 
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import ZayaPlannerConfigEntry
-from .const import EVENT_DURATION, TaskStatus
+from .const import DOMAIN, EVENT_DURATION, TaskStatus
 from .entity import ZayaPlannerEntity
 from .messages import message
 from .models import Task
+from .person_calendar import CalendarFile, PersonCalendar
 
 PARALLEL_UPDATES = 0
 
@@ -34,8 +36,21 @@ async def async_setup_entry(
     entry: ZayaPlannerConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up the calendar."""
-    async_add_entities([ZayaPlannerCalendar(entry)])
+    """Set up the schedule and a calendar for each person."""
+    entities: list[CalendarEntity] = [ZayaPlannerCalendar(entry)]
+    for person in entry.runtime_data.people:
+        file = CalendarFile(hass, person.key)
+        calendar = PersonCalendar(entry, person, file, await file.async_load())
+        entry.runtime_data.calendars[person.entity_id] = calendar
+        entities.append(calendar)
+    async_add_entities(entities, update_before_add=True)
+
+
+
+def _not_a_person_calendar() -> ServiceValidationError:
+    return ServiceValidationError(
+        translation_domain=DOMAIN, translation_key="not_a_person_calendar"
+    )
 
 
 def _event_end(task: Task) -> datetime:
@@ -79,6 +94,14 @@ class ZayaPlannerCalendar(ZayaPlannerEntity, CalendarEntity):
             and task.due < end_date
             and _event_end(task) > start_date
         ]
+
+    # Actions on person calendars do not apply to the schedule
+    async def async_service_add_event(self, **data: object) -> None:
+        """Refuse: the schedule is not a person calendar."""
+        raise _not_a_person_calendar()
+
+    async_service_set_event_details = async_service_add_event
+    async_service_get_events = async_service_add_event
 
     def _event(self, task: Task) -> CalendarEvent:
         hass = self.hass

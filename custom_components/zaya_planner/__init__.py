@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
@@ -21,12 +22,22 @@ from .const import (
     DOMAIN,
 )
 from .executor import Executor
+from .household import Car, HouseholdSettings, Person, cars_from_entry, people_from_entry
 from .services import async_setup_services
 from .store import TaskManager
 
+if TYPE_CHECKING:
+    from .person_calendar import PersonCalendar
+
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.CALENDAR, Platform.SENSOR]
+PLATFORMS: list[Platform] = [
+    Platform.CALENDAR,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
 
@@ -37,6 +48,11 @@ class ZayaPlannerData:
 
     manager: TaskManager
     executor: Executor
+    settings: HouseholdSettings
+    people: list[Person]
+    cars: list[Car]
+    # Person calendars by person entity id (filled by the calendar platform)
+    calendars: dict[str, PersonCalendar] = field(default_factory=dict)
 
 
 type ZayaPlannerConfigEntry = ConfigEntry[ZayaPlannerData]
@@ -53,7 +69,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) 
     manager = TaskManager(hass, entry.entry_id)
     await manager.async_load()
     executor = Executor(hass, entry, manager)
-    entry.runtime_data = ZayaPlannerData(manager=manager, executor=executor)
+    settings = HouseholdSettings(hass, entry.entry_id)
+    await settings.async_load()
+    entry.runtime_data = ZayaPlannerData(
+        manager=manager,
+        executor=executor,
+        settings=settings,
+        people=people_from_entry(hass, entry),
+        cars=cars_from_entry(entry),
+    )
+    _async_remove_stale_devices(hass, entry)
 
     retention = timedelta(
         days=entry.options.get(CONF_RETENTION_DAYS, DEFAULT_RETENTION_DAYS)
@@ -71,7 +96,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) 
 
     # Run tasks once Home Assistant has started: scripts are loaded by then
     entry.async_on_unload(async_at_started(hass, executor.async_start))
+    # New settings, people or cars: set up again
+    entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
     return True
+
+
+async def _async_entry_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    hass.config_entries.async_schedule_reload(entry.entry_id)
+
+
+def _async_remove_stale_devices(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) -> None:
+    """Remove devices of people and cars that are no longer set up.
+
+    Their calendar files stay on disk, so adding a person back restores them.
+    """
+    data = entry.runtime_data
+    wanted = {(DOMAIN, entry.entry_id)}
+    wanted |= {(DOMAIN, f"{entry.entry_id}_person_{p.key}") for p in data.people}
+    wanted |= {(DOMAIN, f"{entry.entry_id}_car_{c.car_id}") for c in data.cars}
+    registry = dr.async_get(hass)
+    for device in dr.async_entries_for_config_entry(registry, entry.entry_id):
+        if not device.identifiers & wanted:
+            registry.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) -> bool:

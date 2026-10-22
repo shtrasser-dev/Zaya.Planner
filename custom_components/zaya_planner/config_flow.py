@@ -11,10 +11,14 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlowWithReload,
+    ConfigSubentryFlow,
+    OptionsFlow,
+    SubentryFlowResult,
 )
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -23,7 +27,10 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_ACTION_PREFIX,
+    CONF_CAR_NAME,
+    CONF_CHARGER,
     CONF_LATENESS_HOURS,
+    CONF_PEOPLE,
     CONF_NOTIFY_ACTION,
     CONF_RETENTION_DAYS,
     DEFAULT_ACTION_PREFIX,
@@ -31,6 +38,7 @@ from .const import (
     DEFAULT_NOTIFY_ACTION,
     DEFAULT_RETENTION_DAYS,
     DOMAIN,
+    SUBENTRY_CAR,
 )
 
 DEFAULT_OPTIONS: dict[str, Any] = {
@@ -38,6 +46,7 @@ DEFAULT_OPTIONS: dict[str, Any] = {
     CONF_ACTION_PREFIX: DEFAULT_ACTION_PREFIX,
     CONF_RETENTION_DAYS: DEFAULT_RETENTION_DAYS,
     CONF_NOTIFY_ACTION: DEFAULT_NOTIFY_ACTION,
+    CONF_PEOPLE: [],
 }
 
 # domain.action, e.g. notify.mobile_app_phone or script.alert
@@ -67,6 +76,10 @@ def _options_schema(options: dict[str, Any]) -> probatio.Schema:
                 NumberSelectorConfig(
                     min=1, max=30, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="d"
                 )
+            ),
+            # Who takes part in the family schedule
+            probatio.Required(CONF_PEOPLE, default=options[CONF_PEOPLE]): EntitySelector(
+                EntitySelectorConfig(domain="person", multiple=True)
             ),
             # Optional so that it can be cleared (back to a persistent notification)
             probatio.Optional(
@@ -102,9 +115,18 @@ class ZayaPlannerConfigFlow(ConfigFlow, domain=DOMAIN):
         """Return the options flow."""
         return ZayaPlannerOptionsFlow()
 
+    @classmethod
+    @callback
+    @override
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        """Cars are added as subentries (“Add car”)."""
+        return {SUBENTRY_CAR: CarSubentryFlow}
 
 
-class ZayaPlannerOptionsFlow(OptionsFlowWithReload):
+
+class ZayaPlannerOptionsFlow(OptionsFlow):
     """Change the settings of Zaya Planner."""
 
     async def async_step_init(
@@ -130,3 +152,50 @@ class ZayaPlannerOptionsFlow(OptionsFlowWithReload):
             step_id="init", data_schema=_options_schema(options), errors=errors
         )
 
+
+
+def _car_schema() -> probatio.Schema:
+    return probatio.Schema(
+        {
+            probatio.Required(CONF_CAR_NAME): TextSelector(),
+            probatio.Optional(CONF_CHARGER): EntitySelector(
+                EntitySelectorConfig(domain=["switch", "input_boolean"])
+            ),
+        }
+    )
+
+
+class CarSubentryFlow(ConfigSubentryFlow):
+    """Add or change a car."""
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Add a car."""
+        if user_input is not None:
+            name = user_input[CONF_CAR_NAME].strip()
+            return self.async_create_entry(
+                title=name,
+                data={CONF_CAR_NAME: name, CONF_CHARGER: user_input.get(CONF_CHARGER)},
+            )
+        return self.async_show_form(step_id="user", data_schema=_car_schema())
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Change a car."""
+        subentry = self._get_reconfigure_subentry()
+        if user_input is not None:
+            name = user_input[CONF_CAR_NAME].strip()
+            return self.async_update_and_abort(
+                self._get_entry(),
+                subentry,
+                title=name,
+                data={CONF_CAR_NAME: name, CONF_CHARGER: user_input.get(CONF_CHARGER)},
+            )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                _car_schema(), dict(subentry.data)
+            ),
+        )

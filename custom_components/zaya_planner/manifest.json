@@ -1,13 +1,20 @@
 {
   "domain": "zaya_planner",
   "name": "Zaya Planner",
-  "codeowners": ["@shtrasser-dev"],
+  "codeowners": [
+    "@shtrasser-dev"
+  ],
   "config_flow": true,
+  "dependencies": [
+    "person"
+  ],
   "documentation": "https://github.com/shtrasser-dev/Zaya.Planner",
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/shtrasser-dev/Zaya.Planner/issues",
-  "requirements": [],
+  "requirements": [
+    "ical==14.3.0"
+  ],
   "single_config_entry": true,
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

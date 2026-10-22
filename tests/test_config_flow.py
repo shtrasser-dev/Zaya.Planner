@@ -6,6 +6,7 @@ from custom_components.zaya_planner.const import (
     CONF_ACTION_PREFIX,
     CONF_LATENESS_HOURS,
     CONF_NOTIFY_ACTION,
+    CONF_PEOPLE,
     CONF_RETENTION_DAYS,
     DEFAULT_ACTION_PREFIX,
     DEFAULT_LATENESS_HOURS,
@@ -32,6 +33,7 @@ async def test_user_flow(hass: HomeAssistant) -> None:
         CONF_ACTION_PREFIX: DEFAULT_ACTION_PREFIX,
         CONF_RETENTION_DAYS: DEFAULT_RETENTION_DAYS,
         CONF_NOTIFY_ACTION: "",
+        CONF_PEOPLE: [],
     }
 
 
@@ -83,6 +85,7 @@ async def test_options_flow(hass: HomeAssistant, setup_entry: MockConfigEntry) -
         CONF_ACTION_PREFIX: "script.task_",
         CONF_RETENTION_DAYS: 7,
         CONF_NOTIFY_ACTION: "notify.mobile_app_phone",
+        CONF_PEOPLE: [],
     }
 
 

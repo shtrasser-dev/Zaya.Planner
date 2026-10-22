@@ -15,24 +15,30 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, service
 from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_ACTION,
+    ATTR_CAR,
     ATTR_DEVICES,
     ATTR_DUE,
+    ATTR_DRIVER,
     ATTR_DUE_ENTITY,
     ATTR_ENTITY_ID,
     ATTR_EXPIRES,
     ATTR_ID,
+    ATTR_KIND,
     ATTR_OFFSET,
     ATTR_PARAMS,
+    ATTR_RIDERS,
     ATTR_RULE_ID,
     ATTR_STATE,
     ATTR_STATUS,
     ATTR_TASKS,
     ATTR_TITLE,
+    ATTR_TRAVEL_MINUTES,
+    ATTR_TRIP,
     BUILTIN_ACTIONS,
     CONF_ACTION_PREFIX,
     DEFAULT_ACTION_PREFIX,
@@ -40,9 +46,14 @@ from .const import (
     EXPIRES_ALWAYS,
     SERVICE_LIST,
     SERVICE_REMOVE,
+    SERVICE_SET_EVENT_DETAILS,
+    SERVICE_ADD_EVENT,
     SERVICE_ENSURE_STATE,
+    SERVICE_GET_EVENTS,
     SERVICE_UPSERT,
+    EventKind,
     TaskStatus,
+    TripKind,
 )
 from .ensure import async_ensure_state
 from .store import TaskDefinition, TaskManager, as_aware
@@ -90,6 +101,39 @@ LIST_SCHEMA = probatio.Schema(
         ),
     }
 )
+
+DETAILS_FIELDS = {
+    probatio.Optional(ATTR_KIND): probatio.In([kind.value for kind in EventKind]),
+    probatio.Optional(ATTR_TRIP): probatio.In([trip.value for trip in TripKind]),
+    probatio.Optional(ATTR_RIDERS): cv.entity_ids,
+    probatio.Optional(ATTR_DRIVER): probatio.Any(None, cv.entity_id),
+    probatio.Optional(ATTR_CAR): probatio.Any(None, cv.string),
+    probatio.Optional(ATTR_TRAVEL_MINUTES): probatio.Any(
+        None, probatio.All(probatio.Coerce(int), probatio.Range(min=0, max=1440))
+    ),
+}
+
+ADD_EVENT_FIELDS = {
+    probatio.Required("summary"): cv.string,
+    probatio.Required("start"): probatio.Any(cv.datetime, cv.date),
+    probatio.Required("end"): probatio.Any(cv.datetime, cv.date),
+    probatio.Optional("rrule"): cv.string,
+    probatio.Optional("description"): cv.string,
+    probatio.Optional("location"): cv.string,
+    **DETAILS_FIELDS,
+}
+
+SET_EVENT_DETAILS_FIELDS = {
+    probatio.Required("uid"): cv.string,
+    probatio.Optional("recurrence_id"): cv.string,
+    probatio.Optional("recurrence_range"): probatio.In(["", "this_and_future", "THISANDFUTURE"]),
+    **DETAILS_FIELDS,
+}
+
+GET_EVENTS_FIELDS = {
+    probatio.Required("start_date_time"): cv.datetime,
+    probatio.Required("end_date_time"): cv.datetime,
+}
 
 ENSURE_STATE_SCHEMA = probatio.Schema(
     {
@@ -238,6 +282,26 @@ def async_setup_services(hass: HomeAssistant) -> None:
         schema=LIST_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
+    # Actions on person calendars (entities of the calendar platform)
+    for name, fields, func, response in (
+        (SERVICE_ADD_EVENT, ADD_EVENT_FIELDS, "async_service_add_event", SupportsResponse.OPTIONAL),
+        (
+            SERVICE_SET_EVENT_DETAILS,
+            SET_EVENT_DETAILS_FIELDS,
+            "async_service_set_event_details",
+            SupportsResponse.OPTIONAL,
+        ),
+        (SERVICE_GET_EVENTS, GET_EVENTS_FIELDS, "async_service_get_events", SupportsResponse.ONLY),
+    ):
+        service.async_register_platform_entity_service(
+            hass,
+            DOMAIN,
+            name,
+            entity_domain="calendar",
+            schema=fields,
+            func=func,
+            supports_response=response,
+        )
     hass.services.async_register(
         DOMAIN,
         SERVICE_ENSURE_STATE,
