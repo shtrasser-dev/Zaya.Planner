@@ -103,7 +103,7 @@ actions:
 ## Family schedule (in progress)
 
 The next part plans the house from the family's days; see [docs/design.md](docs/design.md).
-Done so far (step 1 of 6):
+Done so far (steps 1–2 of 6):
 
 - **People**: in **Configure**, choose who takes part (from Settings → People; children can be
   added there without a login). Each person becomes a device “Zaya: Name” with settings:
@@ -120,7 +120,27 @@ Done so far (step 1 of 6):
   Trip defaults: the calendar's owner and who usually drives them go; the only person with a
   car drives; the driver's car; the travel time of the last trip with the same title.
 
-Next: wake-ups and departures, the house plan, anchors for rules.
+**House plan** (step 2): worked out from the person calendars for the next 8 days and kept
+up to date on every change.
+
+- **Departures**: a trip “take there” leaves *start − travel time*, “pick up” leaves
+  *end − travel time*, “both” makes two departures.
+- **Wake-ups**: wake-up events in a person's calendar, and for every person going on a trip
+  (with *Wake up for trips* on) *departure − getting ready*. A person's wake-up of the day is
+  the earliest one.
+- **Cancellations** (events of kind *cancellation*) switch off what happens in their time in
+  the same calendar: events inside them do not happen, events starting inside start when the
+  cancellation ends, events ending inside end when it starts, wake-ups inside are dropped.
+- `calendar.zaya_planner_house_plan` “House plan” shows departures (🚗) and wake-ups (⏰) with
+  their reasons.
+- Anchors for rules (timestamp sensors): `sensor.zaya_<person>_next_wake_up`,
+  `sensor.zaya_<person>_next_departure`, `sensor.zaya_planner_first_wake_up` (anyone in the house),
+  `sensor.zaya_<car>_first_departure` (the car's next first departure of a day).
+- **Android alarm**: set *Alarm on phone* and *Set the alarm at* (21:00) on a person's device;
+  at that time the phone gets an alarm for tomorrow's wake-up. If the wake-up moves later, the
+  phone gets a notification to fix the alarm.
+
+Next: rules from anchors (floor heating around a wake-up, charging for the first departure).
 
 ## Task
 

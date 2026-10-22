@@ -218,7 +218,7 @@ trip fields with an action form.
 
 1. ✅ **Data**: people (from People) and cars as devices with settings; person calendars with
    trip fields; a form action for trip fields.
-2. **House plan**: wake-ups and departures, cancellations, the “House plan” calendar,
+2. ✅ **House plan**: wake-ups and departures, cancellations, the “House plan” calendar,
    anchor sensors, Android alarm.
 3. **Rules**: “window around an anchor” blueprint, charge by first departure, “time to plan”
    trigger, device triggers, `upsert` → `unchanged`.
