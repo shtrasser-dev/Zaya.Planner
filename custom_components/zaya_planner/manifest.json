@@ -13,7 +13,7 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/shtrasser-dev/Zaya.Planner/issues",
   "requirements": [
-    "ical==14.3.0"
+    "ical>=14.3.0"
   ],
   "single_config_entry": true,
   "version": "0.2.0"
