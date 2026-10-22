@@ -423,7 +423,11 @@ async def _async_plan_window(call: ServiceCall) -> ServiceResponse:
         response: dict[str, Any] = {"start": None, "end": None, "on": None, "off": None}
         return response if call.return_response else None
 
-    response = {"start": window.start.isoformat(), "end": window.end.isoformat(), "on": None}
+    response = {
+        "start": dt_util.as_local(window.start).isoformat(),
+        "end": dt_util.as_local(window.end).isoformat(),
+        "on": None,
+    }
     on_at = max(window.start, now + timedelta(seconds=30))
     need_on = window.start > now or any(
         not hass.states.is_state(device, "on") for device in devices
