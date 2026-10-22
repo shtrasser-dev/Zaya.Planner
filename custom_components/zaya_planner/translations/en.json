@@ -84,6 +84,24 @@
         "sat": "Saturday",
         "sun": "Sunday"
       }
+    },
+    "edge": {
+      "options": {
+        "start": "Start",
+        "end": "End"
+      }
+    },
+    "key_sign": {
+      "options": {
+        "minus": "subtracted",
+        "plus": "added"
+      }
+    },
+    "which": {
+      "options": {
+        "first_of_day": "The first of each day",
+        "every": "Every one"
+      }
     }
   },
   "services": {
@@ -319,6 +337,92 @@
   "device_automation": {
     "trigger_type": {
       "time_to_plan": "Time to plan"
+    }
+  },
+  "config_subentries": {
+    "moment": {
+      "initiate_flow": {
+        "user": "Add moment",
+        "reconfigure": "Change the moment"
+      },
+      "entry_type": "Moment",
+      "step": {
+        "user": {
+          "title": "What is the moment worked out from?",
+          "menu_options": {
+            "calendars": "From calendar events",
+            "moments": "The earliest of other moments"
+          }
+        },
+        "calendars": {
+          "title": "Moment from calendar events",
+          "description": "For example “Leaf: morning departure”: the first event of each day with #leaf, its start minus Travel.",
+          "data": {
+            "name": "Name",
+            "calendars": "Calendars",
+            "tags": "Tags",
+            "conditions": "Attributes",
+            "edge": "Edge of the event",
+            "offset_key": "Minus or plus the attribute",
+            "key_sign": "The attribute is",
+            "offset": "And minutes",
+            "which": "Which events",
+            "cancel_tags": "Cancellations"
+          },
+          "data_description": {
+            "calendars": "Some of the chosen calendars. Empty: all of them.",
+            "tags": "The event has all these tags.",
+            "conditions": "Optional, one per line: Key: value (the attribute has this value) or Key (the attribute is there).",
+            "offset_key": "A key whose value is a duration (00:40:00), e.g. Travel.",
+            "offset": "Plus after, minus before.",
+            "cancel_tags": "Events with any of these tags (Frost, Vacation) cancel what happens in their time in the same calendar."
+          }
+        },
+        "moments": {
+          "title": "The earliest of other moments",
+          "description": "For example “Dad: wake-up”: the earliest of “Leaf: morning departure − 60 min” and Dad's own wake-up.",
+          "data": {
+            "name": "Name",
+            "sources": "Moments",
+            "offset": "Plus minutes"
+          },
+          "data_description": {
+            "sources": "Timestamp sensors: moments of Zaya Planner or any others.",
+            "offset": "Plus after, minus before."
+          }
+        },
+        "reconfigure": {
+          "title": "Change the moment",
+          "data": {
+            "name": "Name",
+            "calendars": "Calendars",
+            "tags": "Tags",
+            "conditions": "Attributes",
+            "edge": "Edge of the event",
+            "offset_key": "Minus or plus the attribute",
+            "key_sign": "The attribute is",
+            "offset": "Plus minutes",
+            "which": "Which events",
+            "cancel_tags": "Cancellations",
+            "sources": "Moments"
+          },
+          "data_description": {
+            "calendars": "Some of the chosen calendars. Empty: all of them.",
+            "tags": "The event has all these tags.",
+            "conditions": "Optional, one per line: Key: value (the attribute has this value) or Key (the attribute is there).",
+            "offset_key": "A key whose value is a duration (00:40:00), e.g. Travel.",
+            "offset": "Plus after, minus before.",
+            "cancel_tags": "Events with any of these tags (Frost, Vacation) cancel what happens in their time in the same calendar.",
+            "sources": "Timestamp sensors: moments of Zaya Planner or any others."
+          }
+        }
+      },
+      "error": {
+        "unknown_words": "Some words are not in the dictionary (the integration settings)."
+      },
+      "abort": {
+        "reconfigure_successful": "The moment is changed."
+      }
     }
   }
 }

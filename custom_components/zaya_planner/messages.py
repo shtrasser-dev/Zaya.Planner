@@ -50,6 +50,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "event_empty_value": "{where}: “{value}” has no value",
         "event_too_long": "{where}: the event is longer than a day, check its dates",
         "event_no_calendar": "Calendar {calendar} is not found",
+        "event_no_value": "{where}: no “{value}” for the moment “{moment}”",
+        "event_not_duration": "{where}: “{value}” is not a duration (moment “{moment}”), write it as 00:40:00",
     },
     "ru": {
         "locked": "задача «{title}» не изменена: её срок уже наступил ({due}), она у исполнителя",
@@ -94,6 +96,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "event_empty_value": "{where}: у «{value}» нет значения",
         "event_too_long": "{where}: событие длиннее суток, проверьте даты",
         "event_no_calendar": "Календарь {calendar} не найден",
+        "event_no_value": "{where}: нет «{value}» для момента «{moment}»",
+        "event_not_duration": "{where}: «{value}» — не длительность (момент «{moment}»), пишите как 00:40:00",
     },
 }
 

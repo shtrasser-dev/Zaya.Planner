@@ -142,3 +142,25 @@ ATTR_START: Final = "start"
 ATTR_END: Final = "end"
 ATTR_FIRST_OF_DAY: Final = "first_of_day"
 ATTR_EVENTS: Final = "events"
+
+# ---------------------------------------------------------------- moments
+
+# Moments are config subentries of this type (“Add moment”)
+SUBENTRY_MOMENT: Final = "moment"
+CONF_KIND: Final = "kind"
+# A moment worked out from calendar events, or the earliest of other moments
+KIND_CALENDARS: Final = "calendars"
+KIND_MOMENTS: Final = "moments"
+CONF_NAME: Final = "name"
+CONF_MOMENT_CALENDARS: Final = "calendars"
+CONF_FILTER_TAGS: Final = "tags"
+CONF_CONDITIONS: Final = "conditions"
+CONF_EDGE: Final = "edge"
+CONF_OFFSET_KEY: Final = "offset_key"
+CONF_KEY_SIGN: Final = "key_sign"
+CONF_OFFSET: Final = "offset"
+CONF_WHICH: Final = "which"
+CONF_CANCEL_TAGS: Final = "cancel_tags"
+CONF_SOURCES: Final = "sources"
+WHICH_FIRST_OF_DAY: Final = "first_of_day"
+WHICH_EVERY: Final = "every"

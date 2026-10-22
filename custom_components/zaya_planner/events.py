@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import logging
 from typing import Any
 
@@ -20,8 +20,22 @@ from homeassistant.util import dt as dt_util
 from .calls import async_notify
 from .const import (
     CONF_CALENDARS,
+    CONF_CANCEL_TAGS,
+    CONF_CONDITIONS,
+    CONF_EDGE,
+    CONF_FILTER_TAGS,
+    CONF_KEY_SIGN,
     CONF_KEYS,
+    CONF_KIND,
+    CONF_MOMENT_CALENDARS,
+    CONF_NAME,
+    CONF_OFFSET,
+    CONF_OFFSET_KEY,
     CONF_TAGS,
+    CONF_WHICH,
+    KIND_CALENDARS,
+    SUBENTRY_MOMENT,
+    WHICH_FIRST_OF_DAY,
     EVENTS_HORIZON,
     EVENTS_REFRESH_INTERVAL,
     LONGEST_TIMED_EVENT,
@@ -29,6 +43,7 @@ from .const import (
 )
 from .description import Dictionary, Filter, Reading, by_start, first_of_each_day
 from .messages import message
+from .moments import Moment, MomentSpec, calculate
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,17 +81,42 @@ class FoundEvent:
 class EventError:
     """Something wrong in an event (or a calendar) of the chosen calendars."""
 
-    # unknown_tag, empty_value, too_long, no_calendar
+    # unknown_tag, empty_value, too_long, no_calendar; of a moment: no_value, not_duration
     code: str
     calendar: str
     summary: str = ""
     day: date | None = None
     value: str = ""
+    moment: str = ""
 
     @property
     def key(self) -> tuple[str, str, str, str]:
         """The same mistake in every event of a series is one error."""
         return (self.code, self.calendar, self.summary, self.value)
+
+
+def moment_spec(data: Mapping[str, Any]) -> MomentSpec:
+    """Return how a moment “from calendars” is worked out, from its subentry data."""
+    conditions = Filter.parse(data.get(CONF_CONDITIONS, ""))
+    return MomentSpec(
+        name=data[CONF_NAME],
+        calendars=tuple(data.get(CONF_MOMENT_CALENDARS) or ()),
+        event_filter=Filter(
+            tuple(data.get(CONF_FILTER_TAGS) or ()) + conditions.tags,
+            conditions.equals,
+            conditions.present,
+        ),
+        edge=data.get(CONF_EDGE, "start"),
+        offset_key=data.get(CONF_OFFSET_KEY) or None,
+        key_sign=1 if data.get(CONF_KEY_SIGN) == "plus" else -1,
+        offset=timedelta(minutes=data.get(CONF_OFFSET) or 0),
+        first_of_day=data.get(CONF_WHICH, WHICH_FIRST_OF_DAY) == WHICH_FIRST_OF_DAY,
+        cancel_tags=tuple(data.get(CONF_CANCEL_TAGS) or ()),
+    )
+
+
+def _day(start: date | datetime) -> date:
+    return start.date() if isinstance(start, datetime) else start
 
 
 def _local(value: date | datetime) -> date | datetime:
@@ -95,6 +135,14 @@ class EventReader:
             entry.options.get(CONF_TAGS, []), entry.options.get(CONF_KEYS, [])
         )
         self.errors: list[EventError] = []
+        # Moments “from calendars” by subentry id, and what they worked out
+        self.specs: dict[str, MomentSpec] = {
+            subentry_id: moment_spec(subentry.data)
+            for subentry_id, subentry in entry.subentries.items()
+            if subentry.subentry_type == SUBENTRY_MOMENT
+            and subentry.data.get(CONF_KIND) == KIND_CALENDARS
+        }
+        self.moments: dict[str, list[Moment]] = {}
         self._subscribed: dict[str, tuple[CalendarEntity, CALLBACK_TYPE]] = {}
         self._first_read = True
         self._debouncer = Debouncer(
@@ -215,15 +263,35 @@ class EventReader:
         self._async_follow()
         now = dt_util.now()
         errors: list[EventError] = []
-        for event in await self.async_events(now, now + EVENTS_HORIZON, errors=errors):
-            day = event.start.date() if isinstance(event.start, datetime) else event.start
+        events = await self.async_events(now, now + EVENTS_HORIZON, errors=errors)
+        for event in events:
             errors.extend(
-                EventError(problem.code, event.calendar, event.summary, day, problem.value)
+                EventError(
+                    problem.code, event.calendar, event.summary, _day(event.start), problem.value
+                )
                 for problem in event.reading.problems
             )
             if isinstance(event.start, datetime) and isinstance(event.end, datetime):
                 if event.end - event.start > LONGEST_TIMED_EVENT:
-                    errors.append(EventError("too_long", event.calendar, event.summary, day))
+                    errors.append(
+                        EventError("too_long", event.calendar, event.summary, _day(event.start))
+                    )
+
+        tz = dt_util.get_default_time_zone()
+        for subentry_id, spec in self.specs.items():
+            moments, problems = calculate(spec, events, tz, dt_util.parse_duration)
+            self.moments[subentry_id] = moments
+            errors.extend(
+                EventError(
+                    problem.code,
+                    problem.event.calendar,
+                    problem.event.summary,
+                    _day(problem.event.start),
+                    problem.value,
+                    spec.name,
+                )
+                for problem in problems
+            )
 
         # One error per mistake, at its first day
         unique: dict[tuple[str, str, str, str], EventError] = {}
@@ -258,4 +326,6 @@ class EventReader:
             calendar=calendar,
             day=f"{error.day:%d.%m}" if error.day else "",
         )
-        return message(hass, f"event_{error.code}", where=where, value=error.value)
+        return message(
+            hass, f"event_{error.code}", where=where, value=error.value, moment=error.moment
+        )

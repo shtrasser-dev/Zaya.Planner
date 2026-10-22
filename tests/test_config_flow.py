@@ -203,3 +203,53 @@ async def test_household_from_older_version_is_removed(hass: HomeAssistant, tmp_
     assert remaining == {f"{entry.entry_id}_{key}" for key in ENTITY_KEYS}
     assert list(storage.glob(f"{DOMAIN}.calendar.*")) == []
     assert not (storage / f"{DOMAIN}.settings").exists()
+
+
+async def test_add_moments(hass: HomeAssistant, config_entry: MockConfigEntry) -> None:
+    """“Add moment”: from calendar events (words from the dictionary) or from moments."""
+    config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={**DEFAULT_OPTIONS, CONF_TAGS: ["leaf"], CONF_KEYS: ["В пути"]},
+    )
+    result = await hass.config_entries.subentries.async_init(
+        (config_entry.entry_id, "moment"), context={"source": SOURCE_USER}
+    )
+    assert result["type"] is FlowResultType.MENU
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"next_step_id": "calendars"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    moment = {
+        "name": " Leaf departure ",
+        "tags": ["leaf"],
+        "conditions": "Время",
+        "edge": "start",
+        "offset_key": "В пути",
+        "key_sign": "minus",
+        "offset": -5.0,
+        "which": "first_of_day",
+    }
+    result = await hass.config_entries.subentries.async_configure(result["flow_id"], moment)
+    assert result["errors"] == {"conditions": "unknown_words"}
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {**moment, "conditions": "В пути"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Leaf departure"
+    subentry = next(iter(config_entry.subentries.values()))
+    assert subentry.data["kind"] == "calendars"
+    assert subentry.data["offset"] == -5
+
+    result = await hass.config_entries.subentries.async_init(
+        (config_entry.entry_id, "moment"), context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"next_step_id": "moments"}
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {"name": "Wake-up", "sources": ["sensor.zaya_leaf_departure"], "offset": -60},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert {s.title for s in config_entry.subentries.values()} == {"Leaf departure", "Wake-up"}

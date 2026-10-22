@@ -11,7 +11,9 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
+    ConfigSubentryFlow,
     OptionsFlow,
+    SubentryFlowResult,
 )
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
@@ -20,6 +22,10 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
 )
@@ -27,18 +33,35 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_ACTION_PREFIX,
     CONF_CALENDARS,
+    CONF_CANCEL_TAGS,
+    CONF_CONDITIONS,
+    CONF_EDGE,
+    CONF_FILTER_TAGS,
+    CONF_KEY_SIGN,
     CONF_KEYS,
+    CONF_KIND,
     CONF_LATENESS_HOURS,
+    CONF_MOMENT_CALENDARS,
+    CONF_NAME,
     CONF_NOTIFY_ACTION,
+    CONF_OFFSET,
+    CONF_OFFSET_KEY,
     CONF_RETENTION_DAYS,
+    CONF_SOURCES,
     CONF_TAGS,
+    CONF_WHICH,
     DEFAULT_ACTION_PREFIX,
     DEFAULT_LATENESS_HOURS,
     DEFAULT_NOTIFY_ACTION,
     DEFAULT_RETENTION_DAYS,
     DOMAIN,
+    KIND_CALENDARS,
+    KIND_MOMENTS,
+    SUBENTRY_MOMENT,
+    WHICH_EVERY,
+    WHICH_FIRST_OF_DAY,
 )
-from .description import norm
+from .description import Dictionary, Filter, norm
 
 DEFAULT_OPTIONS: dict[str, Any] = {
     CONF_LATENESS_HOURS: DEFAULT_LATENESS_HOURS,
@@ -135,6 +158,15 @@ class ZayaPlannerConfigFlow(ConfigFlow, domain=DOMAIN):
         """Return the options flow."""
         return ZayaPlannerOptionsFlow()
 
+    @classmethod
+    @callback
+    @override
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        """Moments are added as subentries (“Add moment”)."""
+        return {SUBENTRY_MOMENT: MomentSubentryFlow}
+
 
 class ZayaPlannerOptionsFlow(OptionsFlow):
     """Change the settings of Zaya Planner."""
@@ -168,3 +200,156 @@ class ZayaPlannerOptionsFlow(OptionsFlow):
             step_id="init", data_schema=_options_schema(options), errors=errors
         )
 
+
+# ---------------------------------------------------------------- moments
+
+
+def _tag_selector(entry: ConfigEntry) -> SelectSelector:
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=[
+                SelectOptionDict(value=tag, label=f"#{tag}")
+                for tag in entry.options.get(CONF_TAGS, [])
+            ],
+            multiple=True,
+            mode=SelectSelectorMode.DROPDOWN,
+        )
+    )
+
+
+def _choice(options: list[str], key: str) -> SelectSelector:
+    return SelectSelector(
+        SelectSelectorConfig(options=options, translation_key=key, mode=SelectSelectorMode.LIST)
+    )
+
+
+def _minutes() -> NumberSelector:
+    return NumberSelector(
+        NumberSelectorConfig(
+            min=-1440, max=1440, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="min"
+        )
+    )
+
+
+def _calendar_moment_schema(entry: ConfigEntry) -> probatio.Schema:
+    """A moment from events: which events, which edge, how much before or after."""
+    return probatio.Schema(
+        {
+            probatio.Required(CONF_NAME): TextSelector(),
+            probatio.Optional(CONF_MOMENT_CALENDARS): EntitySelector(
+                EntitySelectorConfig(
+                    domain="calendar",
+                    multiple=True,
+                    include_entities=list(entry.options.get(CONF_CALENDARS, [])),
+                )
+            ),
+            probatio.Optional(CONF_FILTER_TAGS): _tag_selector(entry),
+            probatio.Optional(CONF_CONDITIONS): TextSelector(TextSelectorConfig(multiline=True)),
+            probatio.Required(CONF_EDGE, default="start"): _choice(["start", "end"], "edge"),
+            probatio.Optional(CONF_OFFSET_KEY): SelectSelector(
+                SelectSelectorConfig(
+                    options=list(entry.options.get(CONF_KEYS, [])),
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            probatio.Required(CONF_KEY_SIGN, default="minus"): _choice(
+                ["minus", "plus"], "key_sign"
+            ),
+            probatio.Required(CONF_OFFSET, default=0): _minutes(),
+            probatio.Required(CONF_WHICH, default=WHICH_FIRST_OF_DAY): _choice(
+                [WHICH_FIRST_OF_DAY, WHICH_EVERY], "which"
+            ),
+            probatio.Optional(CONF_CANCEL_TAGS): _tag_selector(entry),
+        }
+    )
+
+
+def _earliest_moment_schema() -> probatio.Schema:
+    """A moment from moments: the earliest of timestamp sensors, plus an offset."""
+    return probatio.Schema(
+        {
+            probatio.Required(CONF_NAME): TextSelector(),
+            probatio.Required(CONF_SOURCES): EntitySelector(
+                EntitySelectorConfig(domain="sensor", device_class="timestamp", multiple=True)
+            ),
+            probatio.Required(CONF_OFFSET, default=0): _minutes(),
+        }
+    )
+
+
+def _calendar_moment_errors(entry: ConfigEntry, data: dict[str, Any]) -> dict[str, str]:
+    """Words of the conditions must be in the dictionary."""
+    conditions = Filter.parse(data.get(CONF_CONDITIONS, ""))
+    dictionary = Dictionary(entry.options.get(CONF_TAGS, []), entry.options.get(CONF_KEYS, []))
+    return {CONF_CONDITIONS: "unknown_words"} if conditions.unknown_words(dictionary) else {}
+
+
+def _moment_data(kind: str, data: dict[str, Any]) -> dict[str, Any]:
+    data = {**data, CONF_KIND: kind, CONF_NAME: data[CONF_NAME].strip()}
+    data[CONF_OFFSET] = int(data.get(CONF_OFFSET) or 0)
+    return data
+
+
+class MomentSubentryFlow(ConfigSubentryFlow):
+    """Add or change a moment."""
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Choose what the moment comes from."""
+        return self.async_show_menu(step_id="user", menu_options=[KIND_CALENDARS, KIND_MOMENTS])
+
+    async def async_step_calendars(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """A moment from calendar events."""
+        entry = self._get_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            errors = _calendar_moment_errors(entry, user_input)
+            if not errors:
+                data = _moment_data(KIND_CALENDARS, user_input)
+                return self.async_create_entry(title=data[CONF_NAME], data=data)
+        return self.async_show_form(
+            step_id=KIND_CALENDARS,
+            data_schema=self.add_suggested_values_to_schema(
+                _calendar_moment_schema(entry), user_input or {}
+            ),
+            errors=errors,
+        )
+
+    async def async_step_moments(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """The earliest of other moments."""
+        if user_input is not None:
+            data = _moment_data(KIND_MOMENTS, user_input)
+            return self.async_create_entry(title=data[CONF_NAME], data=data)
+        return self.async_show_form(step_id=KIND_MOMENTS, data_schema=_earliest_moment_schema())
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Change a moment (of the same kind)."""
+        entry = self._get_entry()
+        subentry = self._get_reconfigure_subentry()
+        kind = subentry.data.get(CONF_KIND, KIND_CALENDARS)
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if kind == KIND_CALENDARS:
+                errors = _calendar_moment_errors(entry, user_input)
+            if not errors:
+                data = _moment_data(kind, user_input)
+                return self.async_update_and_abort(
+                    entry, subentry, title=data[CONF_NAME], data=data
+                )
+        schema = (
+            _calendar_moment_schema(entry) if kind == KIND_CALENDARS else _earliest_moment_schema()
+        )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                schema, user_input or dict(subentry.data)
+            ),
+            errors=errors,
+        )
