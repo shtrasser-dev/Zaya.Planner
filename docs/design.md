@@ -10,7 +10,7 @@ The family plans its days in calendars; the house follows.
 
 - Events are written in ordinary Home Assistant calendars, one per person or any other way.
 - Tags and attributes in an event's description say what matters for the house:
-  `#leaf #отвезти`, `В пути: 40`.
+  `#leaf #отвезти`, `В пути: 00:40:00`.
 - **Moments** are worked out from the events: “the Leaf leaves for school”, “Dad gets up”.
   Each moment is a timestamp sensor.
 - Rules (automations with `plan_window` / `upsert`) plan the house's work from moments:
@@ -45,7 +45,7 @@ Masha's calendar (a Local Calendar “Masha”), Monday to Friday:
 School                               08:00–13:45, weekly Mon–Fri
 ───────────── description ─────────────
 #leaf #отвезти
-В пути: 40
+В пути: 00:40:00
 Take the sports kit
 ```
 
@@ -90,7 +90,13 @@ events can be chosen too: only events with tags and keys from the dictionary mea
   (“Address: …”, “Room: 12”).
 
 Tags and keys are compared without letter case, “ё” as “е”, spaces around `:` ignored.
-When a key is repeated, the first line counts.
+When a key is repeated, the first line counts. Values are text, kept as written.
+
+**Durations** are written in the Home Assistant format, the one the template filter
+`as_timedelta` reads: `00:40:00` (40 minutes), `01:00:00` (an hour), `1:10:00`, or ISO 8601
+`PT40M`. Zaya Planner reads them with the same Home Assistant function, so a value means the same
+in a moment and in a template. Beware: `40` is 40 seconds and `1:00` is one minute; a duration
+under a minute used as an offset is reported as an error (“did you mean 00:40:00?”).
 
 ### 3.3 Filters
 
@@ -99,7 +105,7 @@ Moments and the action `find_events` pick events with a **filter** written the s
 | Filter line | Means |
 |---|---|
 | `#leaf` | the tag is there |
-| `В пути: 40` | the attribute has this value |
+| `В пути: 00:40:00` | the attribute has this value (text, compared as written) |
 | `В пути` | the attribute is there, any value |
 
 All lines of a filter must hold. In the moment form tags and keys are chosen from the
@@ -114,8 +120,8 @@ The sensor **“Errors in events”** lists what could not be understood in the 
 - a timed event longer than 24 hours (almost always a wrong date in the event dialog).
 
 It also lists the problems moments find (3.5): an event that matches a moment's filter but lacks
-the attribute the moment takes, or has one that is not a number of minutes (“сорок”). A typo in a
-key (`Впути: 40`) shows up this way: the event matches, the attribute is missing.
+the attribute the moment takes, or has one that is not a duration (“сорок”, “1 ч”). A typo in a
+key (`Впути: 00:40:00`) shows up this way: the event matches, the attribute is missing.
 
 A new error sends a notification (the same notification setting as failed tasks).
 Renaming a tag or a key in the dictionary does not change the events: the old word shows up as
@@ -134,7 +140,7 @@ A moment is a timestamp sensor `sensor.zaya_<name>` made on the integration page
 | Calendars | Masha, Dad (from the chosen ones; none = all) |
 | Filter | `#leaf #отвезти` |
 | Edge | start / end of the event |
-| Offset | − `В пути` (a key from the dictionary, its value in minutes) and/or ± minutes |
+| Offset | − `В пути` (a key from the dictionary, its value a duration, 3.2) and/or ± minutes |
 | Which | the first of each day / every one |
 | Cancellations | filter of cancelling events, e.g. `#отмена` (optional) |
 
@@ -181,14 +187,30 @@ Planning again with nothing changed changes nothing (`unchanged`), so rules may 
 ### 3.7 Action `find_events`
 
 `zaya_planner.find_events`: calendars (chosen ones; none = all), a filter, a period, and
-optionally “the first of each day”. Answers the events with their tags and attributes.
-For scripts and automations that need more than a moment.
+optionally “the first of each day”. Answers the events with their tags and attributes as text;
+templates convert them with standard tools:
+
+```yaml
+- action: zaya_planner.find_events
+  data:
+    filter: "#leaf"
+    first_of_day: true
+  response_variable: found
+- variables:
+    travel_minutes: >
+      {{ (found.events[0].attributes['В пути'] | as_timedelta).total_seconds() / 60 }}
+```
+
+Moment sensors carry the same tags and attributes (3.5). No functions of our own are added to
+templates: the more standard tools, the better.
 
 ## 4. What changes in the code
 
 Stays: task store, executor, `upsert`, `ensure_state`, `plan_window`, the “time to plan”
 trigger, the “Schedule” calendar with descriptions built as `Key: value` lines, the generic part
-of `description.py` (`attributes`, `build`, `matches`, `find`, `first_of_day`, minutes).
+of `description.py` (`attributes`, `build`, `matches`, `find`, `first_of_day`).
+Our own reading of durations (`travel_minutes` with “мин”, “ч”) goes: durations are read by
+Home Assistant's `parse_duration`, the same as `as_timedelta`.
 
 Goes:
 
