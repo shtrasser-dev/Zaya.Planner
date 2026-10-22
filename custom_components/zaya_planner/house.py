@@ -34,6 +34,11 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def _local(value: date | datetime) -> date | datetime:
+    """Return a timed value as local aware time (calendar times are floating)."""
+    return dt_util.as_local(value) if isinstance(value, datetime) else value
+
+
 class HousePlanner:
     """Keep the plan of the next days and tell the entities when it changes."""
 
@@ -104,8 +109,8 @@ class HousePlanner:
                         PlanEvent(
                             uid=event.uid or "",
                             summary=event.summary or "",
-                            start=event.start,
-                            end=event.end,
+                            start=_local(event.start),
+                            end=_local(event.end),
                             details=EventDetails.from_extras(event.extras),
                         )
                         for event in ical_events
