@@ -106,7 +106,7 @@ def config_entry(calendars: dict[str, FakeCalendar]) -> MockConfigEntry:
         title="Zaya Planner",
         data={},
         version=1,
-        minor_version=2,
+        minor_version=3,
         options={
             **DEFAULT_OPTIONS,
             CONF_CALENDARS: ["calendar.masha", "calendar.dad", "calendar.gone"],

@@ -5,19 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from custom_components.zaya_planner.const import TripKind
 from custom_components.zaya_planner.description import (
     Dictionary,
     Filter,
     Problem,
     Reading,
     build,
-    build_details,
     first_of_each_day,
     lines,
     tags,
 )
-from custom_components.zaya_planner.details import EventDetails
 
 WORDS = Dictionary(["leaf", "Отвезти", "забрать", "подъём"], ["В пути", "Едут"])
 
@@ -101,10 +98,3 @@ def test_first_of_each_day() -> None:
     ]
     assert [e.summary for e in first_of_each_day(events)] == ["School", "Frost"]
 
-
-def test_build_details_in_russian() -> None:
-    """The house plan still describes its departures this way (until step 6)."""
-    details = EventDetails(trip=TripKind.DROP, riders=("person.masha",), car="leaf", travel_minutes=40)
-    assert build_details(details, "ru", {"person.masha": "Маша"}, {"leaf": "Leaf"}) == (
-        "Поездка: отвезти\nЕдут: Маша\nМашина: Leaf\nВ пути: 40 мин"
-    )

@@ -2,6 +2,8 @@
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.zaya_planner import ENTITY_KEYS
+from custom_components.zaya_planner.config_flow import DEFAULT_OPTIONS
 from custom_components.zaya_planner.const import (
     CONF_ACTION_PREFIX,
     CONF_CALENDARS,
@@ -9,7 +11,6 @@ from custom_components.zaya_planner.const import (
     CONF_TAGS,
     CONF_LATENESS_HOURS,
     CONF_NOTIFY_ACTION,
-    CONF_PEOPLE,
     CONF_RETENTION_DAYS,
     DEFAULT_ACTION_PREFIX,
     DEFAULT_LATENESS_HOURS,
@@ -19,6 +20,7 @@ from custom_components.zaya_planner.const import (
 from homeassistant.config_entries import SOURCE_USER, ConfigSubentryData
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 
 async def test_user_flow(hass: HomeAssistant) -> None:
@@ -36,7 +38,6 @@ async def test_user_flow(hass: HomeAssistant) -> None:
         CONF_ACTION_PREFIX: DEFAULT_ACTION_PREFIX,
         CONF_RETENTION_DAYS: DEFAULT_RETENTION_DAYS,
         CONF_NOTIFY_ACTION: "",
-        CONF_PEOPLE: [],
         CONF_CALENDARS: [],
         CONF_TAGS: [],
         CONF_KEYS: [],
@@ -91,7 +92,6 @@ async def test_options_flow(hass: HomeAssistant, setup_entry: MockConfigEntry) -
         CONF_ACTION_PREFIX: "script.task_",
         CONF_RETENTION_DAYS: 7,
         CONF_NOTIFY_ACTION: "notify.mobile_app_phone",
-        CONF_PEOPLE: [],
         CONF_CALENDARS: [],
         CONF_TAGS: [],
         CONF_KEYS: [],
@@ -146,5 +146,60 @@ async def test_rules_from_older_version_are_removed(hass: HomeAssistant) -> None
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.minor_version == 2
+    assert entry.minor_version == 3
     assert dict(entry.subentries) == {}
+
+
+async def test_household_from_older_version_is_removed(hass: HomeAssistant, tmp_path) -> None:
+    """People, cars, person calendars and the house plan (1.2) are removed."""
+    hass.config.config_dir = str(tmp_path)
+    storage = tmp_path / ".storage"
+    storage.mkdir()
+    (storage / f"{DOMAIN}.calendar.masha.ics").write_text("BEGIN:VCALENDAR\nEND:VCALENDAR\n")
+    (storage / f"{DOMAIN}.settings").write_text(
+        '{"version": 1, "key": "zaya_planner.settings", "data": {}}'
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Zaya Planner",
+        data={},
+        options={**DEFAULT_OPTIONS, "people": ["person.masha"]},
+        version=1,
+        minor_version=2,
+        subentries_data=[
+            ConfigSubentryData(
+                data={"name": "Leaf"}, subentry_type="car", title="Leaf", unique_id=None
+            )
+        ],
+    )
+    entry.add_to_hass(hass)
+    devices = dr.async_get(hass)
+    person = devices.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, f"{entry.entry_id}_person_masha")},
+    )
+    entities = er.async_get(hass)
+    entities.async_get_or_create(
+        "number",
+        DOMAIN,
+        f"{entry.entry_id}_person_masha_getting_ready",
+        config_entry=entry,
+        device_id=person.id,
+    )
+    entities.async_get_or_create(
+        "calendar", DOMAIN, f"{entry.entry_id}_house_plan", config_entry=entry
+    )
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.minor_version == 3
+    assert dict(entry.subentries) == {}
+    assert "people" not in entry.options
+    assert devices.async_get(person.id) is None
+    remaining = {
+        e.unique_id for e in er.async_entries_for_config_entry(entities, entry.entry_id)
+    }
+    assert remaining == {f"{entry.entry_id}_{key}" for key in ENTITY_KEYS}
+    assert list(storage.glob(f"{DOMAIN}.calendar.*")) == []
+    assert not (storage / f"{DOMAIN}.settings").exists()

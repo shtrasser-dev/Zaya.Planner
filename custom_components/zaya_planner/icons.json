@@ -3,9 +3,6 @@
     "calendar": {
       "schedule": {
         "default": "mdi:calendar-clock"
-      },
-      "house_plan": {
-        "default": "mdi:home-clock"
       }
     },
     "sensor": {
@@ -18,49 +15,8 @@
       "tasks": {
         "default": "mdi:format-list-checks"
       },
-      "first_wake_up": {
-        "default": "mdi:weather-sunset-up"
-      },
-      "next_wake_up": {
-        "default": "mdi:alarm"
-      },
-      "next_departure": {
-        "default": "mdi:car-clock"
-      },
-      "first_departure": {
-        "default": "mdi:car-electric"
-      },
       "event_errors": {
         "default": "mdi:calendar-alert"
-      }
-    },
-    "select": {
-      "car": {
-        "default": "mdi:car"
-      },
-      "usually_drives": {
-        "default": "mdi:account-arrow-right"
-      },
-      "alarm_phone": {
-        "default": "mdi:cellphone-sound"
-      }
-    },
-    "number": {
-      "getting_ready": {
-        "default": "mdi:timer-sand"
-      },
-      "charge_margin": {
-        "default": "mdi:battery-clock"
-      }
-    },
-    "switch": {
-      "wake_for_trips": {
-        "default": "mdi:bed-clock"
-      }
-    },
-    "time": {
-      "alarm_time": {
-        "default": "mdi:clock-time-nine-outline"
       }
     }
   },
@@ -76,15 +32,6 @@
     },
     "ensure_state": {
       "service": "mdi:toggle-switch-outline"
-    },
-    "add_event": {
-      "service": "mdi:calendar-plus"
-    },
-    "set_event_details": {
-      "service": "mdi:car-cog"
-    },
-    "get_events": {
-      "service": "mdi:calendar-search"
     },
     "plan_window": {
       "service": "mdi:clock-time-four-outline"

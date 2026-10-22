@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 from typing import override
 
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -19,19 +17,13 @@ from .const import (
     ATTR_ENTITY_ID,
     ATTR_STATE,
     BUILTIN_ACTIONS,
-    DOMAIN,
     EVENT_DURATION,
-    SIGNAL_PLAN_UPDATED,
     TaskStatus,
-    TripKind,
 )
-from .description import build, build_details
-from .details import EventDetails
+from .description import build
 from .entity import ZayaPlannerEntity
-from .messages import language, message
+from .messages import message
 from .models import Task
-from .person_calendar import CalendarFile, PersonCalendar
-from .plan import Plan
 
 PARALLEL_UPDATES = 0
 
@@ -50,21 +42,8 @@ async def async_setup_entry(
     entry: ZayaPlannerConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up the schedule and a calendar for each person."""
-    entities: list[CalendarEntity] = [ZayaPlannerCalendar(entry), HousePlanCalendar(entry)]
-    for person in entry.runtime_data.people:
-        file = CalendarFile(hass, person.key)
-        calendar = PersonCalendar(entry, person, file, await file.async_load())
-        entry.runtime_data.calendars[person.entity_id] = calendar
-        entities.append(calendar)
-    async_add_entities(entities, update_before_add=True)
-
-
-
-def _not_a_person_calendar() -> ServiceValidationError:
-    return ServiceValidationError(
-        translation_domain=DOMAIN, translation_key="not_a_person_calendar"
-    )
+    """Set up the schedule."""
+    async_add_entities([ZayaPlannerCalendar(entry)], update_before_add=True)
 
 
 def _event_end(task: Task) -> datetime:
@@ -109,14 +88,6 @@ class ZayaPlannerCalendar(ZayaPlannerEntity, CalendarEntity):
             and _event_end(task) > start_date
         ]
 
-    # Actions on person calendars do not apply to the schedule
-    async def async_service_add_event(self, **data: object) -> None:
-        """Refuse: the schedule is not a person calendar."""
-        raise _not_a_person_calendar()
-
-    async_service_set_event_details = async_service_add_event
-    async_service_get_events = async_service_add_event
-
     def _event(self, task: Task) -> CalendarEvent:
         hass = self.hass
         fields: list[tuple[str, object]] = [
@@ -158,99 +129,3 @@ class ZayaPlannerCalendar(ZayaPlannerEntity, CalendarEntity):
             for entity_id in cv.ensure_list(entity_ids)
         ]
 
-
-# A wake-up is a moment; it is shown as a short event
-WAKE_EVENT_DURATION = timedelta(minutes=5)
-
-
-class HousePlanCalendar(ZayaPlannerEntity, CalendarEntity):
-    """The house plan: departures and wake-ups worked out from person calendars."""
-
-    _entity_platform = "calendar"
-
-    def __init__(self, entry: ZayaPlannerConfigEntry) -> None:
-        """Initialize the calendar."""
-        super().__init__(entry, entry.runtime_data.manager, "house_plan")
-
-    @override
-    async def async_added_to_hass(self) -> None:
-        """Follow the plan."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass,
-                f"{SIGNAL_PLAN_UPDATED}_{self._entry_id}",
-                self._async_tasks_updated,
-            )
-        )
-
-    @property
-    @override
-    def event(self) -> CalendarEvent | None:
-        """Return the current or next item of the plan."""
-        now = dt_util.now()
-        events = [e for e in self._events(self.entry.runtime_data.house.plan) if e.end > now]
-        return min(events, key=lambda e: e.start, default=None)
-
-    @override
-    async def async_get_events(
-        self, hass: HomeAssistant, start_date: datetime, end_date: datetime
-    ) -> list[CalendarEvent]:
-        """Return the plan of the period."""
-        plan = await self.entry.runtime_data.house.async_plan_for(start_date, end_date)
-        return sorted(self._events(plan), key=lambda e: e.start)
-
-    async def async_service_add_event(self, **data: object) -> None:
-        """Refuse: the house plan is not a person calendar."""
-        raise _not_a_person_calendar()
-
-    async_service_set_event_details = async_service_add_event
-    async_service_get_events = async_service_add_event
-
-    def _events(self, plan: Plan) -> list[CalendarEvent]:
-        data = self.entry.runtime_data
-        names = {person.entity_id: person.name for person in data.people}
-        cars = {car.car_id: car.name for car in data.cars}
-        hass = self.hass
-        events = []
-        for departure in plan.departures:
-            owner = names.get(departure.owner, departure.owner)
-            key = "plan_drop" if departure.trip == TripKind.DROP else "plan_pickup"
-            # The same lines a person writes in an event
-            details = EventDetails(
-                riders=departure.riders,
-                driver=departure.driver,
-                car=departure.car,
-                travel_minutes=departure.travel_minutes,
-            )
-            events.append(
-                CalendarEvent(
-                    start=dt_util.as_local(departure.at),
-                    end=dt_util.as_local(departure.arrive),
-                    summary=message(hass, key, summary=departure.summary, owner=owner),
-                    description=build_details(details, language(hass), names, cars),
-                    uid=f"departure_{departure.uid}_{departure.trip}_{departure.at.isoformat()}",
-                )
-            )
-        for wake in plan.wake_ups:
-            if wake.departure is not None:
-                reason = message(
-                    hass,
-                    "plan_wake_for",
-                    time=f"{dt_util.as_local(wake.departure.at):%H:%M}",
-                    summary=wake.departure.summary,
-                    owner=names.get(wake.departure.owner, wake.departure.owner),
-                )
-            else:
-                reason = message(hass, "plan_wake_set", summary=wake.summary or "")
-            start = dt_util.as_local(wake.at)
-            events.append(
-                CalendarEvent(
-                    start=start,
-                    end=start + WAKE_EVENT_DURATION,
-                    summary=message(hass, "plan_wake", name=names.get(wake.person, wake.person)),
-                    description=reason,
-                    uid=f"wake_{wake.person}_{wake.at.isoformat()}",
-                )
-            )
-        return events

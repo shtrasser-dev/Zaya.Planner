@@ -6,8 +6,8 @@ retries on failure and reports what went wrong. Everything planned is shown on t
 “Schedule” calendar and in sensors.
 
 > **Status:** tasks are stored, shown and run when due, with retries and notifications;
-> rules are ordinary automations with one action, `plan_window`; the family schedule
-> (people, calendars, trips) gives the house plan. See [Roadmap](#roadmap).
+> rules are ordinary automations with one action, `plan_window`; events of calendars of your
+> choice are read with your own tags. Next: moments worked out from events. See [Roadmap](#roadmap).
 
 ## How it works
 
@@ -42,15 +42,18 @@ Requires Home Assistant 2026.10 or newer.
 | Lateness limit | 5 h | A task without its own `expires` is not run if it is later than this (for example after Home Assistant was off) |
 | Allowed actions | `script.plan_` | Scripts whose entity id starts with this prefix can be tasks (besides the built-in `zaya_planner.ensure_state`) |
 | Keep finished tasks | 3 days | Older finished tasks are removed |
-| Notifications | empty | Action for notifications about failing tasks, e.g. `notify.mobile_app_phone` or a script with `title` and `message` fields. Empty: a notification in Home Assistant |
+| Notifications | empty | Action for notifications about failing tasks and errors in events, e.g. `notify.mobile_app_phone` or a script with `title` and `message` fields. Empty: a notification in Home Assistant |
+| Calendars | none | Calendars Zaya Planner reads (see [Calendars and tags](#calendars-and-tags)) |
+| Tags | none | Your tags, written without `#` |
+| Keys | none | Your keys of `Key: value` lines |
 
 ## Rules: automations with `plan_window`
 
 A rule is an ordinary automation, made in the visual editor:
 
 - **When**: the trigger **“Zaya Planner: time to plan”** (Device → Zaya Planner). It fires when
-  Home Assistant has started, when automations are saved, when a task ends, when the house plan
-  changes, and every 15 minutes as a safety net.
+  Home Assistant has started, when automations are saved, when a task ends, and every 15 minutes
+  as a safety net.
 - **And if**: any conditions of your own (“only if the bathroom is below 22 °C”).
 - **Then**: the action **`zaya_planner.plan_window`**: keep devices on from a start to an end.
 
@@ -83,7 +86,7 @@ What the action takes care of:
 Examples:
 
 ```yaml
-# Floor heating 20 minutes around Dad's or Mum's wake-up, whichever is earlier
+# Floor heating 20 minutes around the earlier of two wake-ups (timestamp sensors)
 alias: Floor heating
 triggers:
   - trigger: device
@@ -99,7 +102,7 @@ actions:
     data:
       name: Floor heating
       devices: [switch.floor_heating]
-      start_entity: [sensor.zaya_dad_next_wake_up, sensor.zaya_mum_next_wake_up]
+      start_entity: [sensor.dad_wake_up, sensor.mum_wake_up]
       start_offset: -20
       duration: 40
 ```
@@ -115,7 +118,7 @@ actions:
           end_entity: [sensor.sun_next_rising], end_offset: -30 }
 - action: zaya_planner.plan_window      # charged 30 min before the first departure
   data: { name: Leaf charging, devices: [switch.leaf_charger],
-          end_entity: [sensor.zaya_leaf_first_departure], end_offset: -30,
+          end_entity: [sensor.leaf_departure], end_offset: -30,
           start_before_end_entity: sensor.leaf_charge_minutes, start_before_end: 120 }
 ```
 
@@ -127,51 +130,36 @@ Tasks of a window are `window.<name>:on` and `window.<name>:off:<date>`; `rule_i
 For one action at one moment (“turn the boiler off at 23:00”, “notify 30 minutes before the
 departure”) use `zaya_planner.upsert` with a time or the time of an entity + offset.
 
-## Family schedule (in progress)
+## Calendars and tags
 
-The next part plans the house from the family's days; see [docs/design.md](docs/design.md).
-Done so far (steps 1–3 of 6):
+The house follows the family's calendars; see [docs/design.md](docs/design.md).
+Zaya Planner reads **only the calendars chosen in its settings** (any Home Assistant calendar,
+usually a Local Calendar per person) and **never writes** to them. Events are made and edited
+in the standard Calendar panel.
 
-- **People**: in **Configure**, choose who takes part (from Settings → People; children can be
-  added there without a login). Each person becomes a device “Zaya: Name” with settings:
-  *Getting ready* (minutes), *Wake up for trips*, *Car*, *Usually drives*.
-- **Cars**: **Add car** on the integration page: name and charger switch. Each car is a device
-  “Zaya: Leaf” with *Charged before departure* (minutes).
-- **Person calendars**: `calendar.zaya_<person>`, ordinary Home Assistant calendars (iCalendar
-  files, with repeats and single-occurrence changes). Besides the usual fields an event has
-  *Kind* (event, wake-up, cancellation) and a *Trip*: take there / pick up / both, who goes,
-  who drives, car, travel time. These fields are kept when the event is edited in the
-  Calendar panel.
-- Actions on person calendars: `zaya_planner.add_event`, `zaya_planner.set_event_details`
-  (one occurrence or the series), `zaya_planner.get_events` (events with their trip fields).
-  Trip defaults: the calendar's owner and who usually drives them go; the only person with a
-  car drives; the driver's car; the travel time of the last trip with the same title.
+The words are yours: the settings hold a **dictionary** of tags and keys, in any language.
+In an event's description:
 
-**House plan** (step 2): worked out from the person calendars for the next 8 days and kept
-up to date on every change.
+```
+#leaf #take_there
+Travel: 00:40:00
+Take the sports kit
+```
 
-- **Departures**: a trip “take there” leaves *start − travel time*, “pick up” leaves
-  *end − travel time*, “both” makes two departures.
-- **Wake-ups**: wake-up events in a person's calendar, and for every person going on a trip
-  (with *Wake up for trips* on) *departure − getting ready*. A person's wake-up of the day is
-  the earliest one.
-- **Cancellations** (events of kind *cancellation*) switch off what happens in their time in
-  the same calendar: events inside them do not happen, events starting inside start when the
-  cancellation ends, events ending inside end when it starts, wake-ups inside are dropped.
-- `calendar.zaya_planner_house_plan` “House plan” shows departures (🚗) and wake-ups (⏰) with
-  their reasons.
-- Anchors for rules (timestamp sensors): `sensor.zaya_<person>_next_wake_up`,
-  `sensor.zaya_<person>_next_departure`, `sensor.zaya_planner_first_wake_up` (anyone in the house),
-  `sensor.zaya_<car>_first_departure` (the car's next first departure of a day).
-- **Android alarm**: set *Alarm on phone* and *Set the alarm at* (21:00) on a person's device;
-  at that time the phone gets an alarm for tomorrow's wake-up. If the wake-up moves later, the
-  phone gets a notification to fix the alarm.
+- `#word` anywhere is a **tag**, if it is in the dictionary;
+- a line `Key: value` is an **attribute**, if its key is in the dictionary;
+- everything else is notes. Words are compared without letter case, “ё” as “е”.
 
-**Rules from the plan** (step 3): anchors are used by `plan_window` (see
-[Rules](#rules-automations-with-plan_window)); the car's *First departure of the day* sensor also
-carries its charger and margin as attributes.
+Durations are written as Home Assistant writes them (`00:40:00`, `1:10:00`, `PT40M`), so the
+template filter `as_timedelta` reads them: `{{ attributes['Travel'] | as_timedelta }}`.
 
-Next: weekly timetables, then the dashboard card.
+**Errors in events** (`sensor.zaya_planner_event_errors`) lists what is not understood in the
+next 8 days of the chosen calendars: a tag not in the dictionary, a key with no value, a timed
+event longer than a day (almost always a wrong date), a chosen calendar that is not found.
+A mistake repeated in a series is one error. A new error is notified (see *Notifications*).
+
+Next: **moments** worked out from events (“the first event of the day with `#leaf`, minus
+`Travel`”), as timestamp sensors for rules.
 
 ## Task
 
@@ -289,6 +277,27 @@ Filters: `id`, `rule_id`, `status` (one or a list). Returns `{tasks: [...]}` ord
 
 `entity_id` (one or a list), `state` (`on`/`off`). Response: `{ok, reason}`. See [Running tasks](#running-tasks).
 
+### `zaya_planner.find_events`: find events by tags
+
+`filter`: one condition per line: `#tag` (the tag is there), `Key: value` (the attribute has
+this value), `Key` (the attribute is there); empty: all events. `calendars`: some of the chosen
+ones (empty: all). `start`, `end`: the period (now and 8 days by default). `first_of_day`: only
+the first matching event of each day.
+
+```yaml
+- action: zaya_planner.find_events
+  data:
+    filter: "#leaf"
+    first_of_day: true
+  response_variable: found
+- variables:
+    travel_minutes: >
+      {{ (found.events[0].attributes['Travel'] | as_timedelta).total_seconds() / 60 }}
+```
+
+Response: `{events: [{calendar, summary, start, end, all_day, tags, attributes, description}]}`.
+Words not in the dictionary and calendars not chosen are refused.
+
 ## Entities
 
 | Entity | Shows |
@@ -297,6 +306,7 @@ Filters: `id`, `rule_id`, `status` (one or a list). Returns `{tasks: [...]}` ord
 | `sensor.zaya_planner_next_task` “Next task” | Due time of the next planned task; the task itself in attributes |
 | `sensor.zaya_planner_errors` “Errors” | Number of tasks in error, failed or skipped; the list in the `tasks` attribute |
 | `sensor.zaya_planner_tasks` “Plan” | Number of unfinished tasks; **all** tasks in the `tasks` attribute |
+| `sensor.zaya_planner_event_errors` “Errors in events” | Number of errors in the chosen calendars; the lines in the `errors` attribute |
 
 Entity ids do not depend on the language of Home Assistant. Names, statuses and messages
 are translated (English and Russian).
@@ -319,10 +329,9 @@ content: >-
    `zaya_planner_task_done` / `zaya_planner_task_failed` events, logbook.
 3. ✅ Rules as automations: trigger “time to plan”, `zaya_planner.plan_window`,
    built-in `zaya_planner.ensure_state`.
-4. Family schedule (see [design](docs/design.md)): ✅ people, cars, person calendars with trips;
-   ✅ house plan; next: weekly timetables.
-5. A custom dashboard card.
-6. Moving the real house over, one task at a time.
+4. Calendars (see [design](docs/design.md)): ✅ chosen calendars, tag dictionary, errors in
+   events, `find_events`; next: moments.
+5. Moving the real house over, one task at a time.
 
 ## Development
 

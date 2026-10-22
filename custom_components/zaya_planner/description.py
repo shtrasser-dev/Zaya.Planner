@@ -16,14 +16,11 @@ dictionary (the options). Pure functions, no Home Assistant objects.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 import re
 from typing import Protocol, TypeVar
-
-from .const import EventKind, TripKind
-from .details import EventDetails
 
 # A tag starts with a letter; letters, digits, “_” and “-” follow. It is not
 # part of a word (“a#b”) or of another tag (“##b”).
@@ -218,58 +215,3 @@ def first_of_each_day(events: Iterable[E]) -> list[E]:
         first.setdefault(day_of(event.start), event)
     return list(first.values())
 
-
-# ------------------------------------------------- fixed keys (until step 6)
-# The house plan still describes its departures with these words; they go
-# together with the house plan.
-
-KEY_NAMES: dict[str, dict[str, str]] = {
-    "kind": {"ru": "Тип", "en": "Kind"},
-    "trip": {"ru": "Поездка", "en": "Trip"},
-    "riders": {"ru": "Едут", "en": "Riders"},
-    "driver": {"ru": "За рулём", "en": "Driver"},
-    "car": {"ru": "Машина", "en": "Car"},
-    "travel": {"ru": "В пути", "en": "Travel"},
-}
-KIND_NAMES: dict[EventKind, dict[str, str]] = {
-    EventKind.EVENT: {"ru": "событие", "en": "event"},
-    EventKind.WAKE: {"ru": "подъём", "en": "wake-up"},
-    EventKind.CANCEL: {"ru": "отмена", "en": "cancel"},
-}
-TRIP_NAMES: dict[TripKind, dict[str, str]] = {
-    TripKind.NONE: {"ru": "нет", "en": "none"},
-    TripKind.DROP: {"ru": "отвезти", "en": "take there"},
-    TripKind.PICKUP: {"ru": "забрать", "en": "pick up"},
-    TripKind.BOTH: {"ru": "отвезти и забрать", "en": "take there and pick up"},
-}
-MINUTES = {"ru": "мин", "en": "min"}
-
-
-def build_details(
-    details: EventDetails,
-    language: str,
-    people: Mapping[str, str],
-    cars: Mapping[str, str],
-) -> str:
-    """Return description lines for a departure of the house plan.
-
-    `people` maps an entity id to a name, `cars` a car id to a name.
-    """
-    language = language if language in MINUTES else "en"
-    fields: list[tuple[str, object]] = []
-    if details.kind != EventKind.EVENT:
-        fields.append((KEY_NAMES["kind"][language], KIND_NAMES[details.kind][language]))
-    if details.trip != TripKind.NONE:
-        fields.append((KEY_NAMES["trip"][language], TRIP_NAMES[details.trip][language]))
-    fields.append(
-        (KEY_NAMES["riders"][language], [people.get(rider, rider) for rider in details.riders])
-    )
-    if details.driver:
-        fields.append((KEY_NAMES["driver"][language], people.get(details.driver, details.driver)))
-    if details.car:
-        fields.append((KEY_NAMES["car"][language], cars.get(details.car, details.car)))
-    if details.travel_minutes is not None:
-        fields.append(
-            (KEY_NAMES["travel"][language], f"{details.travel_minutes} {MINUTES[language]}")
-        )
-    return build(fields)

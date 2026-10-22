@@ -24,7 +24,7 @@ TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
 async def async_get_triggers(
     hass: HomeAssistant, device_id: str
 ) -> list[dict[str, str]]:
-    """List triggers of the Zaya Planner device (not of people or cars)."""
+    """List the triggers of the Zaya Planner device."""
     device = dr.async_get(hass).async_get(device_id)
     if device is None:
         return []

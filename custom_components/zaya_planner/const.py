@@ -113,70 +113,12 @@ class UpsertResult(StrEnum):
     PAST = "past"
 
 
-
-# ---------------------------------------------------------------- household
-
-# Options: who takes part (person entities from Settings → People)
-CONF_PEOPLE: Final = "people"
-
-# Cars are config subentries of this type
-SUBENTRY_CAR: Final = "car"
-CONF_CAR_NAME: Final = "name"
-CONF_CHARGER: Final = "charger"
-
-# Settings of people and cars (their device entities), saved right away
-SETTINGS_STORAGE_KEY: Final = f"{DOMAIN}.settings"
-# One iCalendar file per person
-CALENDAR_STORAGE_PATH: Final = ".storage/" + DOMAIN + ".calendar.{key}.ics"
-
-DEFAULT_GETTING_READY: Final = 60
-DEFAULT_CHARGE_MARGIN: Final = 30
-
-SIGNAL_SETTINGS_UPDATED: Final = f"{DOMAIN}_settings_updated"
-
-# Actions on person calendars
-SERVICE_ADD_EVENT: Final = "add_event"
-SERVICE_SET_EVENT_DETAILS: Final = "set_event_details"
-SERVICE_GET_EVENTS: Final = "get_events"
-
-ATTR_KIND: Final = "kind"
-ATTR_TRIP: Final = "trip"
-ATTR_RIDERS: Final = "riders"
-ATTR_DRIVER: Final = "driver"
-ATTR_CAR: Final = "car"
-ATTR_TRAVEL_MINUTES: Final = "travel_minutes"
-
-
-class EventKind(StrEnum):
-    """What an event in a person calendar is."""
-
-    EVENT = "event"
-    WAKE = "wake"
-    CANCEL = "cancel"
-
-
-class TripKind(StrEnum):
-    """Whether an event needs a trip, and to which end of it."""
-
-    NONE = "none"
-    # Departure to arrive by the start
-    DROP = "drop"
-    # Departure to arrive by the end
-    PICKUP = "pickup"
-    BOTH = "both"
-
-# House plan: how far ahead, how often it is worked out again (it also follows
-# every change of calendars and settings)
-PLAN_HORIZON: Final = timedelta(days=8)
-PLAN_REFRESH_INTERVAL: Final = timedelta(minutes=5)
-SIGNAL_CALENDARS_UPDATED: Final = f"{DOMAIN}_calendars_updated"
-SIGNAL_PLAN_UPDATED: Final = f"{DOMAIN}_plan_updated"
-# Fired when rules should plan again (device trigger “time to plan”): the house
-# plan changed, a task ended, Home Assistant started, automations were saved,
-# and every TIME_TO_PLAN_INTERVAL as a safety net
+# Fired when rules should plan again (device trigger “time to plan”): Home
+# Assistant started, automations were saved, a task ended, and every
+# TIME_TO_PLAN_INTERVAL as a safety net
 EVENT_TIME_TO_PLAN: Final = f"{DOMAIN}_time_to_plan"
 TIME_TO_PLAN_INTERVAL: Final = timedelta(minutes=15)
-DEFAULT_ALARM_TIME: Final = "21:00:00"
+
 
 # ---------------------------------------------------------------- calendars and dictionary
 

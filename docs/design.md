@@ -232,11 +232,11 @@ On upgrade the car entries and the saved person settings are removed; nothing is
 1. ✅ Task store, executor, rules with `plan_window` (see README).
 2. ✅ First version of people, cars, own calendars and house plan (replaced by steps 4–6).
 3. ✅ `Key: value` lines: parse / build / find.
-4. **Dictionary and calendars**: options “Calendars”, “Tags”, “Keys”; tags and attributes read
+4. ✅ **Dictionary and calendars**: options “Calendars”, “Tags”, “Keys”; tags and attributes read
    from the chosen calendars; “Errors in events”; `find_events`.
 5. **Moments**: subentries “from calendars” (with cancellations) and “from other moments”;
    sensors; “time to plan” on a change; moment problems in “Errors in events”.
-6. **Clean-up**: people, cars, own calendars, house plan, alarm and fixed keys removed;
+6. ✅ **Clean-up** (done before step 5): people, cars, own calendars, house plan, alarm and fixed keys removed;
    README updated.
 7. **Moving the real house over**: floor heating → lights → Leaf, the old YAML planner
    running in parallel until the new one has proved itself.
