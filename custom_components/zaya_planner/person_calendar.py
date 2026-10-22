@@ -388,7 +388,7 @@ class PersonCalendar(HouseholdEntity, CalendarEntity):
         """Check people and cars; cars may be given by name."""
         data = self.entry.runtime_data
         people = {person.entity_id for person in data.people}
-        for entity_id in [*changes.get("riders") or [], changes.get("driver")]:
+        for entity_id in [*(changes.get("riders") or []), changes.get("driver")]:
             if entity_id and entity_id not in people:
                 raise ServiceValidationError(
                     translation_domain=DOMAIN,
