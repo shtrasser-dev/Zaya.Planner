@@ -88,6 +88,26 @@ async def test_calendar_events(
     assert "script.plan_switch" in events[0]["description"]
     assert '{"state": "on"}' in events[0]["description"]
 
+    hass.states.async_set("switch.floor", "off", {"friendly_name": "Floor"})
+    await upsert(
+        hass, id="c", title="Floor on", due="2026-10-22T03:00:00+00:00",
+        devices=["switch.floor", "switch.gone"], state="on",
+    )
+    response = await hass.services.async_call(
+        "calendar",
+        "get_events",
+        {
+            "entity_id": CALENDAR,
+            "start_date_time": "2026-10-22T00:00:00+00:00",
+            "end_date_time": "2026-10-23T00:00:00+00:00",
+        },
+        blocking=True,
+        return_response=True,
+    )
+    assert response[CALENDAR]["events"][0]["description"] == (
+        "Status: scheduled\nDevices: Floor, switch.gone\nState: on"
+    )
+
     frozen_now.move_to("2026-10-21T12:10:30+00:00")
     async_fire_time_changed(hass)
     await hass.async_block_till_done()

@@ -241,7 +241,7 @@ once, when the new version starts.
 2. ✅ **House plan**: wake-ups and departures, cancellations, the “House plan” calendar,
    anchor sensors, Android alarm.
 3. ✅ **Rules**: the device trigger “time to plan”, the action `plan_window`, `upsert` → `unchanged`.
-4. **Descriptions**: parse / build / find with tests; task descriptions in “Schedule” built
+4. ✅ **Descriptions**: parse / build / find with tests; task descriptions in “Schedule” built
    with them.
 5. **Chosen calendars**: person settings in one options form (with the calendar), cars with
    all their settings in car entries; the house plan reads the chosen Home Assistant

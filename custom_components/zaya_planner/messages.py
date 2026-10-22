@@ -40,14 +40,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "label_params": "Parameters",
         "label_error": "Error",
         "label_attempts": "Attempts",
+        "label_devices": "Devices",
+        "label_state": "State",
         "window_on": "on",
         "window_off": "off",
         "plan_drop": "🚗 {summary} ({owner}): take there",
         "plan_pickup": "🚗 {summary} ({owner}): pick up",
-        "plan_car": "Car: {car}",
-        "plan_driver": "Driving: {name}",
-        "plan_riders": "Going: {riders}",
-        "plan_travel": "On the way: {minutes} min",
         "plan_wake": "⏰ Wake-up: {name}",
         "plan_wake_for": "For the departure at {time}: {summary} ({owner})",
         "plan_wake_set": "From the calendar: {summary}",
@@ -88,14 +86,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "label_params": "Параметры",
         "label_error": "Ошибка",
         "label_attempts": "Попыток",
+        "label_devices": "Устройства",
+        "label_state": "Состояние",
         "window_on": "вкл",
         "window_off": "выкл",
         "plan_drop": "🚗 {summary} ({owner}): отвезти",
         "plan_pickup": "🚗 {summary} ({owner}): забрать",
-        "plan_car": "Машина: {car}",
-        "plan_driver": "За рулём: {name}",
-        "plan_riders": "Едут: {riders}",
-        "plan_travel": "В пути: {minutes} мин",
         "plan_wake": "⏰ Подъём: {name}",
         "plan_wake_for": "К выезду в {time}: {summary} ({owner})",
         "plan_wake_set": "Из календаря: {summary}",
@@ -106,8 +102,13 @@ _MESSAGES: dict[str, dict[str, str]] = {
 }
 
 
+def language(hass: HomeAssistant) -> str:
+    """Return the language of Home Assistant if there are texts in it, else English."""
+    code = (hass.config.language or "en").split("-")[0]
+    return code if code in _MESSAGES else "en"
+
+
 def message(hass: HomeAssistant, key: str, **kwargs: object) -> str:
     """Return the text in the language of Home Assistant (English by default)."""
-    language = (hass.config.language or "en").split("-")[0]
-    texts = _MESSAGES.get(language, _MESSAGES["en"])
+    texts = _MESSAGES[language(hass)]
     return texts.get(key, _MESSAGES["en"][key]).format(**kwargs)

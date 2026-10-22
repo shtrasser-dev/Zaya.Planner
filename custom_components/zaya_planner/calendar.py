@@ -9,14 +9,26 @@ from typing import override
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import ZayaPlannerConfigEntry
-from .const import DOMAIN, EVENT_DURATION, SIGNAL_PLAN_UPDATED, TaskStatus, TripKind
+from .const import (
+    ATTR_ENTITY_ID,
+    ATTR_STATE,
+    BUILTIN_ACTIONS,
+    DOMAIN,
+    EVENT_DURATION,
+    SIGNAL_PLAN_UPDATED,
+    TaskStatus,
+    TripKind,
+)
+from .description import build, build_details
+from .details import EventDetails
 from .entity import ZayaPlannerEntity
-from .messages import message
+from .messages import language, message
 from .models import Task
 from .person_calendar import CalendarFile, PersonCalendar
 from .plan import Plan
@@ -107,26 +119,44 @@ class ZayaPlannerCalendar(ZayaPlannerEntity, CalendarEntity):
 
     def _event(self, task: Task) -> CalendarEvent:
         hass = self.hass
-        lines = [
-            f"{message(hass, 'label_status')}: {message(hass, f'status_{task.status}')}",
-            f"{message(hass, 'label_action')}: {task.action}",
+        fields: list[tuple[str, object]] = [
+            (message(hass, "label_status"), message(hass, f"status_{task.status}"))
         ]
-        if task.params:
-            params = json.dumps(task.params, ensure_ascii=False, default=str)
-            lines.append(f"{message(hass, 'label_params')}: {params}")
+        if task.action in BUILTIN_ACTIONS and ATTR_ENTITY_ID in task.params:
+            # zaya_planner.ensure_state: the devices by name and the state
+            fields.append((message(hass, "label_devices"), self._names(task.params[ATTR_ENTITY_ID])))
+            state = task.params.get(ATTR_STATE)
+            fields.append(
+                (message(hass, "label_state"), message(hass, f"window_{state}") if state else None)
+            )
+        else:
+            fields.append((message(hass, "label_action"), task.action))
+            if task.params:
+                fields.append(
+                    (
+                        message(hass, "label_params"),
+                        json.dumps(task.params, ensure_ascii=False, default=str),
+                    )
+                )
         if task.attempts:
-            lines.append(f"{message(hass, 'label_attempts')}: {task.attempts}")
-        if task.last_error:
-            lines.append(f"{message(hass, 'label_error')}: {task.last_error}")
+            fields.append((message(hass, "label_attempts"), task.attempts))
+        fields.append((message(hass, "label_error"), task.last_error))
         return CalendarEvent(
             start=dt_util.as_local(task.due),
             end=dt_util.as_local(_event_end(task)),
             summary=f"{icon} {task.display_title}"
             if (icon := STATUS_ICONS.get(task.status))
             else task.display_title,
-            description="\n".join(lines),
+            description=build(fields),
             uid=task.uid,
         )
+
+    def _names(self, entity_ids: object) -> list[str]:
+        """Return the friendly names of entities, or their ids."""
+        return [
+            state.name if (state := self.hass.states.get(entity_id)) else entity_id
+            for entity_id in cv.ensure_list(entity_ids)
+        ]
 
 
 # A wake-up is a moment; it is shown as a short event
@@ -186,24 +216,19 @@ class HousePlanCalendar(ZayaPlannerEntity, CalendarEntity):
         for departure in plan.departures:
             owner = names.get(departure.owner, departure.owner)
             key = "plan_drop" if departure.trip == TripKind.DROP else "plan_pickup"
-            lines = [
-                message(
-                    hass,
-                    "plan_riders",
-                    riders=", ".join(names.get(r, r) for r in departure.riders),
-                ),
-                message(hass, "plan_travel", minutes=departure.travel_minutes),
-            ]
-            if departure.driver:
-                lines.insert(0, message(hass, "plan_driver", name=names.get(departure.driver, departure.driver)))
-            if departure.car:
-                lines.insert(0, message(hass, "plan_car", car=cars.get(departure.car, departure.car)))
+            # The same lines a person writes in an event
+            details = EventDetails(
+                riders=departure.riders,
+                driver=departure.driver,
+                car=departure.car,
+                travel_minutes=departure.travel_minutes,
+            )
             events.append(
                 CalendarEvent(
                     start=dt_util.as_local(departure.at),
                     end=dt_util.as_local(departure.arrive),
                     summary=message(hass, key, summary=departure.summary, owner=owner),
-                    description="\n".join(lines),
+                    description=build_details(details, language(hass), names, cars),
                     uid=f"departure_{departure.uid}_{departure.trip}_{departure.at.isoformat()}",
                 )
             )

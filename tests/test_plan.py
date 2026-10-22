@@ -129,6 +129,22 @@ async def test_school_trip(hass: HomeAssistant, family: MockConfigEntry) -> None
     assert state(hass, "sensor.zaya_leaf_first_departure") == "2026-10-26T04:20:00+00:00"
     assert state(hass, "sensor.zaya_planner_first_wake_up") == "2026-10-26T03:20:00+00:00"
 
+    response = await hass.services.async_call(
+        "calendar",
+        "get_events",
+        {
+            "entity_id": PLAN,
+            "start_date_time": "2026-10-26T07:00:00+03:00",
+            "end_date_time": "2026-10-26T08:00:00+03:00",
+        },
+        blocking=True,
+        return_response=True,
+    )
+    # The same lines a person writes in an event
+    assert response[PLAN]["events"][0]["description"] == (
+        "Riders: Masha, Dad\nDriver: Dad\nCar: Leaf\nTravel: 40 min"
+    )
+
     attributes = hass.states.get("sensor.zaya_dad_next_wake_up").attributes
     assert attributes["reason"] == "departure"
     assert attributes["summary"] == "School"
