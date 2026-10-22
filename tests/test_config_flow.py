@@ -37,6 +37,9 @@ async def test_user_flow(hass: HomeAssistant) -> None:
         CONF_RETENTION_DAYS: DEFAULT_RETENTION_DAYS,
         CONF_NOTIFY_ACTION: "",
         CONF_PEOPLE: [],
+        CONF_CALENDARS: [],
+        CONF_TAGS: [],
+        CONF_KEYS: [],
     }
 
 
