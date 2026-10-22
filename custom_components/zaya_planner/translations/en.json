@@ -19,20 +19,28 @@
           "action_prefix": "Allowed actions",
           "retention_days": "Keep finished tasks",
           "notify_action": "Notifications",
-          "people": "People"
+          "people": "People",
+          "calendars": "Calendars",
+          "tags": "Tags",
+          "keys": "Keys"
         },
         "data_description": {
           "lateness_hours": "A task without its own `expires` is not run if it is later than this (for example after Home Assistant was off).",
           "action_prefix": "Only scripts whose entity id starts with this prefix can be tasks, for example script.plan_",
           "retention_days": "Finished tasks older than this are removed.",
           "notify_action": "Action that sends notifications about failed tasks, for example notify.mobile_app_phone or a script with title and message fields. Empty: a notification in Home Assistant.",
-          "people": "Who takes part in the family schedule (from Settings → People). Each gets a calendar and a device with settings."
+          "people": "Who takes part in the family schedule (from Settings → People). Each gets a calendar and a device with settings.",
+          "calendars": "The calendars Zaya Planner reads. Other calendars are never opened, and nothing is written to these.",
+          "tags": "Tags that may be written in event descriptions, without “#”: leaf, отвезти… A tag starts with a letter.",
+          "keys": "Keys of “Key: value” lines in event descriptions, for example “В пути”. Lines with other keys are notes."
         }
       }
     },
     "error": {
       "invalid_prefix": "The prefix must start with “script.” and name a group of scripts, for example script.plan_",
-      "invalid_action": "Write an action as domain.action, for example notify.mobile_app_phone"
+      "invalid_action": "Write an action as domain.action, for example notify.mobile_app_phone",
+      "invalid_tag": "A tag starts with a letter and has only letters, digits, “_” and “-”.",
+      "invalid_key": "A key cannot have “:” or start with “#”."
     }
   },
   "entity": {
@@ -65,6 +73,9 @@
       },
       "first_departure": {
         "name": "First departure of the day"
+      },
+      "event_errors": {
+        "name": "Errors in events"
       }
     },
     "number": {
@@ -433,6 +444,32 @@
           "name": "End"
         }
       }
+    },
+    "find_events": {
+      "name": "Find events",
+      "description": "Finds events of the chosen calendars by tags and attributes. Answers each event with its tags and attributes (as text).",
+      "fields": {
+        "filter": {
+          "name": "Filter",
+          "description": "One condition per line: #tag (the tag is there), Key: value (the attribute has this value), Key (the attribute is there). Empty: all events."
+        },
+        "calendars": {
+          "name": "Calendars",
+          "description": "Some of the chosen calendars. Empty: all chosen calendars."
+        },
+        "start": {
+          "name": "From",
+          "description": "Start of the period. Empty: now."
+        },
+        "end": {
+          "name": "To",
+          "description": "End of the period. Empty: 8 days from the start."
+        },
+        "first_of_day": {
+          "name": "First of each day",
+          "description": "Only the first matching event of each day."
+        }
+      }
     }
   },
   "exceptions": {
@@ -468,6 +505,15 @@
     },
     "window_sources": {
       "message": "Give the start one way (a time, an entity's time, or minutes before the end) and the end one way (a time, an entity's time, or minutes after the start); not both as minutes from each other."
+    },
+    "not_a_chosen_calendar": {
+      "message": "Zaya Planner does not read {calendars}: choose it in the integration settings."
+    },
+    "unknown_filter_words": {
+      "message": "Not in the dictionary: {words}. Add them in the integration settings."
+    },
+    "end_before_start": {
+      "message": "The end of the period is not after its start."
     }
   },
   "config_subentries": {

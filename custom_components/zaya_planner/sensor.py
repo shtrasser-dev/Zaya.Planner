@@ -12,7 +12,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import ZayaPlannerConfigEntry
-from .const import ATTR_TASKS, SIGNAL_PLAN_UPDATED, TaskStatus
+from .const import ATTR_TASKS, SIGNAL_EVENTS_UPDATED, SIGNAL_PLAN_UPDATED, TaskStatus
 from .entity import HouseholdEntity, ZayaPlannerEntity
 from .household import Car, Person
 from .messages import message
@@ -35,6 +35,7 @@ async def async_setup_entry(
             NextTaskSensor(entry, entry.runtime_data.manager, "next_task"),
             ErrorsSensor(entry, entry.runtime_data.manager, "errors"),
             TasksSensor(entry, entry.runtime_data.manager, "tasks"),
+            EventErrorsSensor(entry, entry.runtime_data.manager, "event_errors"),
             HouseFirstWakeUpSensor(entry, entry.runtime_data.manager, "first_wake_up"),
         ]
     )
@@ -144,6 +145,35 @@ class TasksSensor(ZayaPlannerSensor):
             ]
         }
 
+
+
+class EventErrorsSensor(ZayaPlannerSensor):
+    """What is not understood in the events of the chosen calendars."""
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Follow the calendars."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                f"{SIGNAL_EVENTS_UPDATED}_{self._entry_id}",
+                self.async_write_ha_state,
+            )
+        )
+
+    @property
+    @override
+    def native_value(self) -> int:
+        """Return the number of errors."""
+        return len(self.entry.runtime_data.events.errors)
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the errors as lines."""
+        reader = self.entry.runtime_data.events
+        return {"errors": [reader.describe(error) for error in reader.errors]}
 
 
 # ---------------------------------------------------------------- anchors

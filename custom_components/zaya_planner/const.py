@@ -177,3 +177,26 @@ SIGNAL_PLAN_UPDATED: Final = f"{DOMAIN}_plan_updated"
 EVENT_TIME_TO_PLAN: Final = f"{DOMAIN}_time_to_plan"
 TIME_TO_PLAN_INTERVAL: Final = timedelta(minutes=15)
 DEFAULT_ALARM_TIME: Final = "21:00:00"
+
+# ---------------------------------------------------------------- calendars and dictionary
+
+# Options: the calendars that are read, and the user's tags and keys
+CONF_CALENDARS: Final = "calendars"
+CONF_TAGS: Final = "tags"
+CONF_KEYS: Final = "keys"
+
+# Events of the chosen calendars are checked this far ahead, and read again this
+# often (they are also read again whenever a chosen calendar changes)
+EVENTS_HORIZON: Final = timedelta(days=8)
+EVENTS_REFRESH_INTERVAL: Final = timedelta(minutes=5)
+SIGNAL_EVENTS_UPDATED: Final = f"{DOMAIN}_events_updated"
+# A timed event longer than this is almost always a wrong date
+LONGEST_TIMED_EVENT: Final = timedelta(hours=24)
+
+SERVICE_FIND_EVENTS: Final = "find_events"
+ATTR_CALENDARS: Final = "calendars"
+ATTR_FILTER: Final = "filter"
+ATTR_START: Final = "start"
+ATTR_END: Final = "end"
+ATTR_FIRST_OF_DAY: Final = "first_of_day"
+ATTR_EVENTS: Final = "events"

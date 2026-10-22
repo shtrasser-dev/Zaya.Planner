@@ -23,16 +23,20 @@ from homeassistant.helpers.selector import (
     NumberSelectorConfig,
     NumberSelectorMode,
     TextSelector,
+    TextSelectorConfig,
 )
 
 from .const import (
     CONF_ACTION_PREFIX,
+    CONF_CALENDARS,
     CONF_CAR_NAME,
     CONF_CHARGER,
+    CONF_KEYS,
     CONF_LATENESS_HOURS,
     CONF_PEOPLE,
     CONF_NOTIFY_ACTION,
     CONF_RETENTION_DAYS,
+    CONF_TAGS,
     DEFAULT_ACTION_PREFIX,
     DEFAULT_LATENESS_HOURS,
     DEFAULT_NOTIFY_ACTION,
@@ -40,6 +44,7 @@ from .const import (
     DOMAIN,
     SUBENTRY_CAR,
 )
+from .description import norm
 
 DEFAULT_OPTIONS: dict[str, Any] = {
     CONF_LATENESS_HOURS: DEFAULT_LATENESS_HOURS,
@@ -47,10 +52,25 @@ DEFAULT_OPTIONS: dict[str, Any] = {
     CONF_RETENTION_DAYS: DEFAULT_RETENTION_DAYS,
     CONF_NOTIFY_ACTION: DEFAULT_NOTIFY_ACTION,
     CONF_PEOPLE: [],
+    CONF_CALENDARS: [],
+    CONF_TAGS: [],
+    CONF_KEYS: [],
 }
 
 # domain.action, e.g. notify.mobile_app_phone or script.alert
 ACTION_RE = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$")
+# A tag as it is written after “#”: a letter, then letters, digits, “_”, “-”
+TAG_RE = re.compile(r"^[^\W\d_][\w-]*$")
+
+
+def _words(values: list[str], strip: str = "") -> list[str]:
+    """Return the words without spaces (and `strip` characters), each once."""
+    words: dict[str, str] = {}
+    for value in values:
+        word = value.strip().lstrip(strip).strip()
+        if word:
+            words.setdefault(norm(word), word)
+    return list(words.values())
 
 
 def _options_schema(options: dict[str, Any]) -> probatio.Schema:
@@ -80,6 +100,16 @@ def _options_schema(options: dict[str, Any]) -> probatio.Schema:
             # Who takes part in the family schedule
             probatio.Required(CONF_PEOPLE, default=options[CONF_PEOPLE]): EntitySelector(
                 EntitySelectorConfig(domain="person", multiple=True)
+            ),
+            # The calendars that are read, and the words of their descriptions
+            probatio.Required(CONF_CALENDARS, default=options[CONF_CALENDARS]): EntitySelector(
+                EntitySelectorConfig(domain="calendar", multiple=True)
+            ),
+            probatio.Required(CONF_TAGS, default=options[CONF_TAGS]): TextSelector(
+                TextSelectorConfig(multiple=True)
+            ),
+            probatio.Required(CONF_KEYS, default=options[CONF_KEYS]): TextSelector(
+                TextSelectorConfig(multiple=True)
             ),
             # Optional so that it can be cleared (back to a persistent notification)
             probatio.Optional(
@@ -142,6 +172,12 @@ class ZayaPlannerOptionsFlow(OptionsFlow):
             user_input[CONF_NOTIFY_ACTION] = notify
             if notify and not ACTION_RE.match(notify):
                 errors[CONF_NOTIFY_ACTION] = "invalid_action"
+            user_input[CONF_TAGS] = _words(user_input.get(CONF_TAGS, []), "#")
+            user_input[CONF_KEYS] = _words(user_input.get(CONF_KEYS, []))
+            if not all(TAG_RE.match(tag) for tag in user_input[CONF_TAGS]):
+                errors[CONF_TAGS] = "invalid_tag"
+            if any(":" in key or key.startswith("#") for key in user_input[CONF_KEYS]):
+                errors[CONF_KEYS] = "invalid_key"
             # Only scripts may be run, and only a named subset of them
             if not prefix.startswith("script.") or prefix == "script.":
                 errors[CONF_ACTION_PREFIX] = "invalid_prefix"

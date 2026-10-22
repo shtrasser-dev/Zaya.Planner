@@ -29,6 +29,9 @@
       },
       "first_departure": {
         "default": "mdi:car-electric"
+      },
+      "event_errors": {
+        "default": "mdi:calendar-alert"
       }
     },
     "select": {
@@ -85,6 +88,9 @@
     },
     "plan_window": {
       "service": "mdi:clock-time-four-outline"
+    },
+    "find_events": {
+      "service": "mdi:calendar-filter"
     }
   }
 }

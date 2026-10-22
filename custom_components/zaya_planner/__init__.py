@@ -21,6 +21,7 @@ from .const import (
     DEFAULT_RETENTION_DAYS,
     DOMAIN,
 )
+from .events import EventReader
 from .executor import Executor
 from .house import HousePlanner
 from .household import Car, HouseholdSettings, Person, cars_from_entry, people_from_entry
@@ -54,6 +55,7 @@ class ZayaPlannerData:
     people: list[Person]
     cars: list[Car]
     house: HousePlanner
+    events: EventReader
     # Person calendars by person entity id (filled by the calendar platform)
     calendars: dict[str, PersonCalendar] = field(default_factory=dict)
 
@@ -81,6 +83,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) 
         people=people_from_entry(hass, entry),
         cars=cars_from_entry(entry),
         house=HousePlanner(hass, entry),
+        events=EventReader(hass, entry),
     )
     _async_remove_stale_devices(hass, entry)
 
@@ -103,6 +106,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) 
     # Run tasks once Home Assistant has started: scripts are loaded by then
     entry.async_on_unload(async_at_started(hass, executor.async_start))
     entry.async_on_unload(async_at_started(hass, entry.runtime_data.house.async_started))
+    # Read the chosen calendars once Home Assistant has started: they are loaded by then
+    entry.async_on_unload(async_at_started(hass, entry.runtime_data.events.async_start))
     # New settings, people or cars: set up again
     entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
     return True

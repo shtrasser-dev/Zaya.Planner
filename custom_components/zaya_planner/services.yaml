@@ -113,6 +113,30 @@ ensure_state:
             - "on"
             - "off"
 
+find_events:
+  fields:
+    filter:
+      example: "#leaf"
+      selector:
+        text:
+          multiline: true
+    calendars:
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: calendar
+    start:
+      selector:
+        datetime:
+    end:
+      selector:
+        datetime:
+    first_of_day:
+      default: false
+      selector:
+        boolean:
+
 add_event:
   target:
     entity:

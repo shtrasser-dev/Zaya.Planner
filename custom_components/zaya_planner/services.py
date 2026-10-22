@@ -21,6 +21,14 @@ from homeassistant.util import dt as dt_util, slugify
 
 from .const import (
     ATTR_ACTION,
+    ATTR_CALENDARS,
+    ATTR_END,
+    ATTR_EVENTS,
+    ATTR_FILTER,
+    ATTR_FIRST_OF_DAY,
+    ATTR_START,
+    EVENTS_HORIZON,
+    SERVICE_FIND_EVENTS,
     ATTR_CAR,
     ATTR_DEVICES,
     ATTR_DUE,
@@ -57,6 +65,7 @@ from .const import (
     TaskStatus,
     TripKind,
 )
+from .description import Filter
 from .ensure import async_ensure_state
 from .messages import message
 from .store import TaskDefinition, TaskManager, as_aware
@@ -147,14 +156,19 @@ ENSURE_STATE_SCHEMA = probatio.Schema(
 )
 
 
-def _get_manager(hass: HomeAssistant) -> tuple[TaskManager, str]:
-    """Return the task manager and the allowed action prefix."""
+def _get_entry(hass: HomeAssistant) -> Any:
+    """Return the loaded config entry of Zaya Planner."""
     entries = hass.config_entries.async_loaded_entries(DOMAIN)
     if not entries:
         raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="not_loaded"
         )
-    entry = entries[0]
+    return entries[0]
+
+
+def _get_manager(hass: HomeAssistant) -> tuple[TaskManager, str]:
+    """Return the task manager and the allowed action prefix."""
+    entry = _get_entry(hass)
     prefix = entry.options.get(CONF_ACTION_PREFIX, DEFAULT_ACTION_PREFIX)
     return entry.runtime_data.manager, prefix
 
@@ -269,6 +283,45 @@ async def _async_ensure_state(call: ServiceCall) -> ServiceResponse:
     return {"ok": ok, "reason": reason}
 
 
+FIND_EVENTS_SCHEMA = probatio.Schema(
+    {
+        probatio.Optional(ATTR_CALENDARS): cv.entity_ids,
+        probatio.Optional(ATTR_FILTER, default=""): cv.string,
+        probatio.Optional(ATTR_START): cv.datetime,
+        probatio.Optional(ATTR_END): cv.datetime,
+        probatio.Optional(ATTR_FIRST_OF_DAY, default=False): cv.boolean,
+    }
+)
+
+
+async def _async_find_events(call: ServiceCall) -> ServiceResponse:
+    reader = _get_entry(call.hass).runtime_data.events
+    calendars = call.data.get(ATTR_CALENDARS) or None
+    if calendars and (other := [c for c in calendars if c not in reader.calendars]):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="not_a_chosen_calendar",
+            translation_placeholders={"calendars": ", ".join(other)},
+        )
+    event_filter = Filter.parse(call.data[ATTR_FILTER])
+    if unknown := event_filter.unknown_words(reader.dictionary):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="unknown_filter_words",
+            translation_placeholders={"words": ", ".join(unknown)},
+        )
+    start = as_aware(call.data[ATTR_START]) if ATTR_START in call.data else dt_util.utcnow()
+    end = as_aware(call.data[ATTR_END]) if ATTR_END in call.data else start + EVENTS_HORIZON
+    if end <= start:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="end_before_start"
+        )
+    events = await reader.async_find(
+        event_filter, start, end, calendars, call.data[ATTR_FIRST_OF_DAY]
+    )
+    return {ATTR_EVENTS: [event.as_dict() for event in events]}
+
+
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
     """Register the actions of Zaya Planner."""
@@ -319,6 +372,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
         _async_plan_window,
         schema=PLAN_WINDOW_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_FIND_EVENTS,
+        _async_find_events,
+        schema=FIND_EVENTS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(
         DOMAIN,

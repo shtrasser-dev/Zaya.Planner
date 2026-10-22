@@ -52,6 +52,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "alarm_title": "Zaya Planner: alarm",
         "alarm_moved": "{name}: the wake-up is now at {time}, the alarm is set for {alarm} — please fix it",
         "alarm_cancelled": "{name}: no wake-up any more, the alarm is set for {alarm} — please turn it off",
+        "notify_title_event_errors": "Zaya Planner: errors in events",
+        "event_where": "{summary} ({calendar}, {day})",
+        "event_unknown_tag": "{where}: tag #{value} is not in the dictionary",
+        "event_empty_value": "{where}: “{value}” has no value",
+        "event_too_long": "{where}: the event is longer than a day, check its dates",
+        "event_no_calendar": "Calendar {calendar} is not found",
     },
     "ru": {
         "locked": "задача «{title}» не изменена: её срок уже наступил ({due}), она у исполнителя",
@@ -98,6 +104,12 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "alarm_title": "Zaya Planner: будильник",
         "alarm_moved": "{name}: подъём теперь в {time}, а будильник стоит на {alarm} — поправьте его",
         "alarm_cancelled": "{name}: подъёма больше нет, а будильник стоит на {alarm} — выключите его",
+        "notify_title_event_errors": "Zaya Planner: ошибки в событиях",
+        "event_where": "{summary} ({calendar}, {day})",
+        "event_unknown_tag": "{where}: тега #{value} нет в словаре",
+        "event_empty_value": "{where}: у «{value}» нет значения",
+        "event_too_long": "{where}: событие длиннее суток, проверьте даты",
+        "event_no_calendar": "Календарь {calendar} не найден",
     },
 }
 

@@ -4,6 +4,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.zaya_planner.const import (
     CONF_ACTION_PREFIX,
+    CONF_CALENDARS,
+    CONF_KEYS,
+    CONF_TAGS,
     CONF_LATENESS_HOURS,
     CONF_NOTIFY_ACTION,
     CONF_PEOPLE,
@@ -86,7 +89,36 @@ async def test_options_flow(hass: HomeAssistant, setup_entry: MockConfigEntry) -
         CONF_RETENTION_DAYS: 7,
         CONF_NOTIFY_ACTION: "notify.mobile_app_phone",
         CONF_PEOPLE: [],
+        CONF_CALENDARS: [],
+        CONF_TAGS: [],
+        CONF_KEYS: [],
     }
+
+
+async def test_options_dictionary(hass: HomeAssistant, setup_entry: MockConfigEntry) -> None:
+    """Tags are kept without “#”, each once; tags and keys must be words."""
+    base = {
+        CONF_LATENESS_HOURS: 5,
+        CONF_ACTION_PREFIX: "script.plan_",
+        CONF_RETENTION_DAYS: 3,
+        CONF_CALENDARS: ["calendar.masha"],
+    }
+    result = await hass.config_entries.options.async_init(setup_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {**base, CONF_TAGS: ["#leaf", "1st"], CONF_KEYS: ["В пути:"]},
+    )
+    assert result["errors"] == {CONF_TAGS: "invalid_tag", CONF_KEYS: "invalid_key"}
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {**base, CONF_TAGS: [" #leaf", "Leaf", "отвезти", ""], CONF_KEYS: [" В пути ", "в пути"]},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert setup_entry.options[CONF_CALENDARS] == ["calendar.masha"]
+    assert setup_entry.options[CONF_TAGS] == ["leaf", "отвезти"]
+    assert setup_entry.options[CONF_KEYS] == ["В пути"]
 
 
 async def test_rules_from_older_version_are_removed(hass: HomeAssistant) -> None:
