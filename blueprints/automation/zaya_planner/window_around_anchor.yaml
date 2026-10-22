@@ -150,8 +150,8 @@ actions:
       - action: zaya_planner.upsert
         data:
           # One “off” per window: when the anchor jumps to the next day, the open
-      # window still ends as planned
-      id: "{{ rule }}:off:{{ as_local(as_datetime(off_at)).date() }}"
+          # window still ends as planned
+          id: "{{ rule }}:off:{{ as_local(as_datetime(off_at)).date() }}"
           title: "{{ name }}: {{ off_title }}"
           due: "{{ off_at }}"
           expires: always

@@ -261,7 +261,11 @@ async def test_plan_changed_device_trigger(
 
     assert await async_setup_component(hass, "device_automation", {})
     registry = dr.async_get(hass)
-    main = registry.async_get_device(identifiers={(DOMAIN, family.entry_id)})
+    main = next(
+        device
+        for device in dr.async_entries_for_config_entry(registry, family.entry_id)
+        if (DOMAIN, family.entry_id) in device.identifiers
+    )
     triggers = await async_get_device_automations(
         hass, DeviceAutomationType.TRIGGER, main.id
     )
