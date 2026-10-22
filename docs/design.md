@@ -81,7 +81,7 @@ Fields of an event besides the standard ones are stored as iCalendar `X-` proper
 
 | Field | Property | Values |
 |---|---|---|
-| Kind | `X-ZAYA-KIND` | `event` (default), `wake` |
+| Kind | `X-ZAYA-KIND` | `event` (default), `wake`, `cancel` |
 | Trip | `X-ZAYA-TRIP` | none, `drop` (take there), `pickup`, `both` |
 | Riders | `X-ZAYA-RIDERS` | people going |
 | Driver | `X-ZAYA-DRIVER` | a rider who drives |
@@ -104,6 +104,18 @@ Google Calendar is not used as storage. A one-way export may be added later (sec
     driver = the only driver among riders (asked only when there are two);
     car = the driver's default car; travel time = from the last trip with the same title.
 - **Wake-ups** are events of kind `wake` (see 3.6).
+- **Cancellations** are events of kind `cancel` (“Frost”, “Vacation”, “No first two lessons”):
+  they switch off what happens in their time *in the same person's calendar*, without
+  deleting anything. All-day or with times, one day or many. Within a cancellation:
+  - an event entirely inside it does not happen: no trips, no wake-ups from it;
+  - an event that starts inside it starts when it ends (the “take there” departure moves later);
+  - an event that ends inside it ends when it starts (the “pick up” departure moves earlier);
+  - a wake-up inside it is cancelled.
+
+  Cancelled events stay visible (greyed out) so it is clear why the house is quiet.
+  Deleting the cancellation brings everything back. A dashboard button
+  “No school tomorrow” creates an all-day cancellation for the children.
+  Public holidays from the Workday integration may later count as cancellations (optional).
 
 ### 3.5 Weekly timetables
 
@@ -120,8 +132,8 @@ Sat    09:00   11:35   —             —             …
 
 The timetable produces one weekly recurring event per row in the child's calendar
 (“School”, with trips and lessons). Changing the timetable rewrites those events;
-a change on one day is made on that day's event only. Holidays and vacations remove
-the school days in their dates (public holidays may come from the Workday integration).
+a change on one day is made on that day's event only. Days off, vacations and cancelled
+lessons are cancellations in the child's calendar (see 3.4).
 
 ### 3.6 Wake-ups
 
@@ -217,7 +229,6 @@ Each step ends tested (automated tests + the test Home Assistant).
 
 ## 7. Open questions
 
-- Holidays: dates in the timetable, Workday holidays, or both?
 - Where lessons are typed: in the timetable only, or also per day?
 - Evening summary: time and to whom?
 
