@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-import freezegun
+import ical.calendar_stream  # noqa: F401
+import ical.event  # noqa: F401
+import ical.store  # noqa: F401
+import ical.timeline  # noqa: F401
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -12,9 +15,9 @@ from homeassistant.core import HomeAssistant
 
 from .common import NOW
 
-# The iCalendar library keeps real date and time types: freezing them inside it
-# breaks how it orders its encoders
-freezegun.configure(extend_ignore_list=["ical"])
+# The iCalendar library above is imported before any test freezes time: it
+# remembers the date and time types it was imported with, and they must all be
+# the real ones (importing parts of it while time is frozen mixes in fake ones)
 
 
 @pytest.fixture(autouse=True)
