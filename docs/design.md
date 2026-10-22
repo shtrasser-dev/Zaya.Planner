@@ -40,7 +40,7 @@ The house plan for Monday, worked out the evening before:
 13:05        Departure on the Chery ← School ends 13:45 (Masha), Mum drives, pick up
 ```
 
-In the evening Dad's Android phone gets an alarm for 6:20 and a summary notification.
+In the evening Dad's Android phone gets an alarm for 6:20.
 If the lesson moves to 9:00 (only this Monday), the plan moves with it.
 
 ## 3. Concepts
@@ -59,7 +59,8 @@ Each person becomes a **device** “Zaya: Name” whose settings are ordinary en
 | Wake up for trips | on / off | Whether trips create wake-ups for this person (off for small children today) |
 | Cars | Leaf | Cars this person drives; the first one is the default for their trips |
 | Usually drives | Dad | For children: who is added to their trips by default |
-| Alarm phone | Pixel / none | Android phone that gets the evening alarm (see 3.9) |
+| Alarm phone | Pixel / none | Android phone that gets the alarm for the wake-up (see 3.9) |
+| Set alarm at | 21:00 | When the alarm for tomorrow is set |
 | Calendar | “Masha” | The person's calendar, created by the integration |
 
 Whether a person is an adult (can drive) follows from the settings: a person with cars is a driver.
@@ -87,7 +88,7 @@ Fields of an event besides the standard ones are stored as iCalendar `X-` proper
 | Driver | `X-ZAYA-DRIVER` | a rider who drives |
 | Car | `X-ZAYA-CAR` | a car |
 | Travel time | `X-ZAYA-TRAVEL` | minutes, including parking |
-| Lessons | `X-ZAYA-LESSONS` | list, information only |
+| Lessons | `X-ZAYA-LESSONS` | list from the weekly timetable, information only |
 | Timetable | `X-ZAYA-TIMETABLE` | id of the weekly timetable the event came from |
 
 Google Calendar is not used as storage. A one-way export may be added later (section 8).
@@ -185,11 +186,12 @@ A trigger **“Zaya Planner: time to plan”** fires when anchors change, after 
 after automations are saved; rules use it instead of the low-level `automation_reloaded`.
 `upsert` leaves unchanged tasks alone (`result: unchanged`), so planning again costs nothing.
 
-### 3.9 Notifications and alarms
+### 3.9 Alarms
 
-- An evening summary of tomorrow (wake-ups, departures, charging).
-- **Android**: the evening summary also sets the system alarm for the person's wake-up
-  (once a day; if the wake-up moves later, a notification asks to fix the alarm).
+- No daily summary: the house plan on a dashboard is checked by eye.
+- **Android**: in the evening (a time in the person's settings) the system alarm is set for the
+  person's wake-up of tomorrow, once a day. If the wake-up moves after that, a notification
+  asks to fix the alarm (Android does not let apps change or delete an alarm).
 - iPhone: no alarm for now (iOS does not let apps set alarms).
 
 ## 4. Screens (own dashboard card)
@@ -216,8 +218,8 @@ trip fields with an action form.
 
 1. **Data**: people (from People) and cars as devices with settings; person calendars with
    trip fields; a form action for trip fields.
-2. **House plan**: wake-ups and departures, the “House plan” calendar, anchor sensors,
-   evening summary, Android alarm.
+2. **House plan**: wake-ups and departures, cancellations, the “House plan” calendar,
+   anchor sensors, Android alarm.
 3. **Rules**: “window around an anchor” blueprint, charge by first departure, “time to plan”
    trigger, device triggers, `upsert` → `unchanged`.
 4. **Weekly timetables**.
@@ -229,11 +231,11 @@ Each step ends tested (automated tests + the test Home Assistant).
 
 ## 7. Open questions
 
-- Where lessons are typed: in the timetable only, or also per day?
-- Evening summary: time and to whom?
+None at the moment.
 
 ## 8. Later
 
 - Travel time from maps with traffic (Waze free / 2GIS paid; Yandex too expensive).
 - One-way export of the house plan to Google Calendar (via the Google Calendar API).
 - iPhone: reading the next alarm through Shortcuts; HA as an alarm with critical notifications.
+- A daily summary notification, if the dashboard is not enough.
