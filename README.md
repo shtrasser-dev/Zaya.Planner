@@ -110,12 +110,13 @@ Done so far (step 1 of 6):
   *Getting ready* (minutes), *Wake up for trips*, *Car*, *Usually drives*.
 - **Cars**: **Add car** on the integration page: name and charger switch. Each car is a device
   “Zaya: Leaf” with *Charged before departure* (minutes).
-- **Person calendars**: , ordinary Home Assistant calendars (iCalendar
+- **Person calendars**: `calendar.zaya_<person>`, ordinary Home Assistant calendars (iCalendar
   files, with repeats and single-occurrence changes). Besides the usual fields an event has
   *Kind* (event, wake-up, cancellation) and a *Trip*: take there / pick up / both, who goes,
   who drives, car, travel time. These fields are kept when the event is edited in the
   Calendar panel.
-- Actions on person calendars: ,   (one occurrence or the series),  (events with their trip fields).
+- Actions on person calendars: `zaya_planner.add_event`, `zaya_planner.set_event_details`
+  (one occurrence or the series), `zaya_planner.get_events` (events with their trip fields).
   Trip defaults: the calendar's owner and who usually drives them go; the only person with a
   car drives; the driver's car; the travel time of the last trip with the same title.
 
