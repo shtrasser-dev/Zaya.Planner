@@ -420,5 +420,10 @@
         }
       }
     }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "plan_changed": "House plan changed"
+    }
   }
 }

@@ -272,10 +272,15 @@ class CarFirstDepartureSensor(PlanFollower, HouseholdEntity, SensorEntity):
 
     @property
     @override
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return where and who."""
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return where and who, and the car's charging settings for rules."""
         departure = self._departure()
-        return _departure_attributes(self.entry, departure) if departure else None
+        settings = self.entry.runtime_data.settings.car(self.car)
+        return {
+            "charger": self.car.charger,
+            "charge_margin": settings["charge_margin"],
+            **(_departure_attributes(self.entry, departure) if departure else {}),
+        }
 
 
 class HouseFirstWakeUpSensor(PlanFollower, ZayaPlannerSensor):

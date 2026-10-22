@@ -104,6 +104,8 @@ class UpsertResult(StrEnum):
 
     CREATED = "created"
     UPDATED = "updated"
+    # The task is already planned exactly so
+    UNCHANGED = "unchanged"
     # An open task with this id is already due: it belongs to the executor
     LOCKED = "locked"
     # A rule planned a task in the past: rules plan only the future
@@ -168,4 +170,6 @@ PLAN_HORIZON: Final = timedelta(days=8)
 PLAN_REFRESH_INTERVAL: Final = timedelta(minutes=5)
 SIGNAL_CALENDARS_UPDATED: Final = f"{DOMAIN}_calendars_updated"
 SIGNAL_PLAN_UPDATED: Final = f"{DOMAIN}_plan_updated"
+# Fired when departures or wake-ups change (device trigger “plan changed”)
+EVENT_PLAN_CHANGED: Final = f"{DOMAIN}_plan_changed"
 DEFAULT_ALARM_TIME: Final = "21:00:00"

@@ -1,0 +1,165 @@
+blueprint:
+  name: "Zaya Planner: window around an anchor"
+  description: >-
+    Turns devices on for a window around a moment of the house plan: a wake-up,
+    a departure, or any timestamp sensor (floor heating around a wake-up, a
+    coffee machine before a departure).
+
+
+    Choose one or more anchors: the earliest one counts. The window is from
+    “before” minutes before it to “after” minutes after it. Extra conditions
+    (e.g. “only if the bathroom is below 22 °C”) are checked when the window is
+    planned; if they do not hold, nothing is turned on.
+
+
+    The automation plans two tasks in Zaya Planner, “on” and “off”, and the
+    planner runs them reliably: it waits until the devices confirm, retries and
+    reports failures. Turning off happens however late, and a planned “off” is
+    never cancelled. The window follows the anchor: when the wake-up moves, the
+    tasks move. If Home Assistant was off when the window started, the devices
+    are turned on as soon as it is back.
+  domain: automation
+  source_url: https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/window_around_anchor.yaml
+  input:
+    anchors:
+      name: Anchors
+      description: E.g. Zaya “Wake-up” of one or more people. The earliest counts.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: sensor
+              device_class: timestamp
+    before:
+      name: Start before
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 720
+          unit_of_measurement: min
+          mode: box
+    after:
+      name: End after
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 720
+          unit_of_measurement: min
+          mode: box
+    devices:
+      name: Devices
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: [switch, light, input_boolean, fan]
+    conditions:
+      name: Only if
+      description: Conditions checked when the window is planned (optional).
+      default: []
+      selector:
+        condition: {}
+    on_title:
+      name: Name of the “on” task
+      description: Shown after the automation's name on the calendar.
+      default: "on"
+      selector:
+        text: {}
+    off_title:
+      name: Name of the “off” task
+      default: "off"
+      selector:
+        text: {}
+
+mode: queued
+max: 10
+max_exceeded: silent
+
+triggers:
+  - trigger: homeassistant
+    event: start
+  - trigger: event
+    event_type: automation_reloaded
+  - trigger: state
+    entity_id: !input anchors
+  - trigger: event
+    event_type: zaya_planner_task_done
+    id: task
+  - trigger: event
+    event_type: zaya_planner_task_failed
+    id: task
+
+conditions:
+  # Only tasks of this automation
+  - condition: template
+    value_template: "{{ trigger.id != 'task' or trigger.event.data.rule_id == this.entity_id }}"
+
+variables:
+  anchors: !input anchors
+  before: !input before
+  after: !input after
+  devices: !input devices
+  on_title: !input on_title
+  off_title: !input off_title
+  rule: "{{ this.entity_id }}"
+  name: "{{ this.attributes.friendly_name }}"
+
+actions:
+  - variables:
+      anchor: >-
+        {%- set ns = namespace(at=none) -%}
+        {%- for entity in anchors -%}
+          {%- set at = as_datetime(states(entity), none) -%}
+          {%- if at is not none and (ns.at is none or at < ns.at) -%}
+            {%- set ns.at = at -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {{ ns.at.isoformat() if ns.at is not none else '' }}
+  - if: "{{ not anchor }}"
+    then:
+      # Nothing ahead: nothing to turn on (a planned “off” stays)
+      - action: zaya_planner.remove
+        data:
+          id: "{{ rule }}:on"
+      - stop: No anchor ahead
+  - variables:
+      start: "{{ (as_datetime(anchor) - timedelta(minutes=before | int)).isoformat() }}"
+      off_at: "{{ (as_datetime(anchor) + timedelta(minutes=after | int)).isoformat() }}"
+      on_at: "{{ ([as_datetime(start), now() + timedelta(seconds=30)] | max).isoformat() }}"
+      # Inside the window only if something is not on yet (e.g. after a restart)
+      need_on: >-
+        {{ as_datetime(start) > now()
+           or devices | reject('is_state', 'on') | list | count > 0 }}
+  - if:
+      - condition: and
+        conditions: !input conditions
+    then:
+      - if: "{{ need_on and as_datetime(on_at) < as_datetime(off_at) }}"
+        then:
+          - action: zaya_planner.upsert
+            data:
+              id: "{{ rule }}:on"
+              title: "{{ name }}: {{ on_title }}"
+              due: "{{ on_at }}"
+              expires: "{{ off_at }}"
+              devices: "{{ devices }}"
+              state: "on"
+              rule_id: "{{ rule }}"
+      - action: zaya_planner.upsert
+        data:
+          # One “off” per window: when the anchor jumps to the next day, the open
+      # window still ends as planned
+      id: "{{ rule }}:off:{{ as_local(as_datetime(off_at)).date() }}"
+          title: "{{ name }}: {{ off_title }}"
+          due: "{{ off_at }}"
+          expires: always
+          devices: "{{ devices }}"
+          state: "off"
+          rule_id: "{{ rule }}"
+    else:
+      # Conditions do not hold: do not turn on (a planned “off” stays)
+      - action: zaya_planner.remove
+        data:
+          id: "{{ rule }}:on"

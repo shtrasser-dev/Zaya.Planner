@@ -126,6 +126,23 @@ class TaskManager:
                 "Rule %s: task %s is in the past", definition.rule_id, definition.id
             )
             return None, UpsertResult.PAST
+        if task is not None and (
+            task.title,
+            task.due,
+            task.action,
+            task.params,
+            task.expires,
+            task.rule_id,
+        ) == (
+            definition.title,
+            due,
+            definition.action,
+            dict(definition.params or {}),
+            expires,
+            definition.rule_id,
+        ):
+            # Planned again the same way (rules do it often): nothing to save
+            return task, UpsertResult.UNCHANGED
         if task is not None and task.due <= now:
             self.log(
                 message(

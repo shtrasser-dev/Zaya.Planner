@@ -325,3 +325,13 @@ async def test_upsert_needs_one_when_and_one_what(
         await hass.services.async_call(
             DOMAIN, "upsert", {"id": "t", **data}, blocking=True
         )
+
+
+async def test_upsert_same_again_is_unchanged(
+    hass: HomeAssistant, setup_entry: MockConfigEntry
+) -> None:
+    """Planning the same task again changes nothing."""
+    first = await upsert(hass, id="t", title="Floor", due=DUE, expires="always")
+    again = await upsert(hass, id="t", title="Floor", due=DUE, expires="always")
+    assert again["result"] == "unchanged"
+    assert again["task"] == first["task"]

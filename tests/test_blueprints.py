@@ -315,3 +315,99 @@ async def test_charge_waits_for_horizon(
         {"charger": "switch.charger", "departure": "sensor.departure"},
     )
     assert await open_tasks(hass) == {}
+
+
+# ------------------------------------------------------ window around anchor
+
+
+async def test_window_around_anchor(
+    hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now, switches, blueprints
+) -> None:
+    """The earliest anchor counts; an open window still ends today when it jumps."""
+    hass.states.async_set("switch.floor", "off")
+    hass.states.async_set("sensor.dad_wake", "2026-10-22T03:50:00+00:00")
+    hass.states.async_set("sensor.mum_wake", "2026-10-22T05:30:00+00:00")
+    await setup_rule(
+        hass,
+        "window_around_anchor.yaml",
+        {"anchors": ["sensor.dad_wake", "sensor.mum_wake"], "devices": ["switch.floor"]},
+    )
+    assert await open_tasks(hass) == {
+        f"{RULE}:on": ("2026-10-22T03:30:00+00:00", "2026-10-22T04:10:00+00:00"),
+        f"{RULE}:off:2026-10-22": ("2026-10-22T04:10:00+00:00", "always"),
+    }
+
+    await move_to(hass, frozen_now, "2026-10-22T03:30:00+00:00")
+    assert hass.states.get("switch.floor").state == "on"
+
+    # Dad is up: the earliest anchor is now Mum's, the window goes on until hers
+    await move_to(hass, frozen_now, "2026-10-22T03:50:01+00:00")
+    hass.states.async_set("sensor.dad_wake", "2026-10-23T03:50:00+00:00")
+    await hass.async_block_till_done()
+    assert (await open_tasks(hass))[f"{RULE}:off:2026-10-22"][0] == "2026-10-22T05:50:00+00:00"
+
+    # Mum is up too: tomorrow is planned, today's window still ends today
+    await move_to(hass, frozen_now, "2026-10-22T05:30:01+00:00")
+    hass.states.async_set("sensor.mum_wake", "2026-10-23T05:30:00+00:00")
+    await hass.async_block_till_done()
+    assert await open_tasks(hass) == {
+        f"{RULE}:on": ("2026-10-23T03:30:00+00:00", "2026-10-23T04:10:00+00:00"),
+        f"{RULE}:off:2026-10-22": ("2026-10-22T05:50:00+00:00", "always"),
+        f"{RULE}:off:2026-10-23": ("2026-10-23T04:10:00+00:00", "always"),
+    }
+
+    await move_to(hass, frozen_now, "2026-10-22T05:50:00+00:00")
+    assert hass.states.get("switch.floor").state == "off"
+
+
+async def test_window_conditions(
+    hass: HomeAssistant, setup_entry: MockConfigEntry, switches, blueprints
+) -> None:
+    """When the conditions do not hold, nothing is turned on."""
+    hass.states.async_set("switch.floor", "off")
+    hass.states.async_set("sensor.dad_wake", "2026-10-22T03:50:00+00:00")
+    hass.states.async_set("sensor.bathroom", "24")
+    await setup_rule(
+        hass,
+        "window_around_anchor.yaml",
+        {
+            "anchors": ["sensor.dad_wake"],
+            "devices": ["switch.floor"],
+            "conditions": [
+                {"condition": "numeric_state", "entity_id": "sensor.bathroom", "below": 22}
+            ],
+        },
+    )
+    assert await open_tasks(hass) == {}
+
+
+# --------------------------------------------------------- charge Zaya car
+
+
+async def test_charge_zaya_car(
+    hass: HomeAssistant, setup_entry: MockConfigEntry, switches, blueprints
+) -> None:
+    """Charger and margin come from the car's anchor sensor."""
+    hass.states.async_set("switch.charger", "off")
+    hass.states.async_set(
+        "sensor.leaf_first_departure",
+        "2026-10-22T04:20:00+00:00",
+        {"charger": "switch.charger", "charge_margin": 30},
+    )
+    await setup_rule(
+        hass, "charge_zaya_car.yaml", {"car": "sensor.leaf_first_departure", "minutes": 90}
+    )
+    # 4:20 − 90 min charging − 30 min margin; off at the departure
+    assert await open_tasks(hass) == {
+        f"{RULE}:on": ("2026-10-22T02:20:00+00:00", "2026-10-22T04:20:00+00:00"),
+        f"{RULE}:off:2026-10-22": ("2026-10-22T04:20:00+00:00", "always"),
+    }
+
+    # No departure ahead: the “on” is cancelled, the “off” stays
+    hass.states.async_set(
+        "sensor.leaf_first_departure",
+        "unknown",
+        {"charger": "switch.charger", "charge_margin": 30},
+    )
+    await hass.async_block_till_done()
+    assert set(await open_tasks(hass)) == {f"{RULE}:off:2026-10-22"}

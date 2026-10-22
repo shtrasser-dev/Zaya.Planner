@@ -18,6 +18,7 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    EVENT_PLAN_CHANGED,
     PLAN_HORIZON,
     PLAN_REFRESH_INTERVAL,
     SIGNAL_CALENDARS_UPDATED,
@@ -48,6 +49,8 @@ class HousePlanner:
         self.entry = entry
         self.plan = Plan()
         self._unsub_next: CALLBACK_TYPE | None = None
+        # What the plan looked like last time, to tell when it changes
+        self._fingerprint: tuple | None = None
 
     @property
     def _data(self) -> ZayaPlannerData:
@@ -86,6 +89,14 @@ class HousePlanner:
         self.plan = await self.async_plan_for(start, start + PLAN_HORIZON)
         await self._async_check_alarms()
         self._async_updated()
+        fingerprint = (
+            tuple((d.at, d.trip, d.uid, d.riders, d.driver, d.car) for d in self.plan.departures),
+            tuple((w.at, w.person) for w in self.plan.wake_ups),
+        )
+        if self._fingerprint is not None and fingerprint != self._fingerprint:
+            # For automations: time to plan again
+            self.hass.bus.async_fire(EVENT_PLAN_CHANGED)
+        self._fingerprint = fingerprint
 
     async def async_plan_for(self, start: datetime, end: datetime) -> Plan:
         """Return the plan of a period (events a day around it are read too)."""
