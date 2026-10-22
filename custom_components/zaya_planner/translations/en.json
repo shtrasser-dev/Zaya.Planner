@@ -39,6 +39,9 @@
     "calendar": {
       "schedule": {
         "name": "Schedule"
+      },
+      "house_plan": {
+        "name": "House plan"
       }
     },
     "sensor": {
@@ -50,6 +53,18 @@
       },
       "tasks": {
         "name": "Plan"
+      },
+      "first_wake_up": {
+        "name": "First wake-up"
+      },
+      "next_wake_up": {
+        "name": "Wake-up"
+      },
+      "next_departure": {
+        "name": "Departure"
+      },
+      "first_departure": {
+        "name": "First departure of the day"
       }
     },
     "number": {
@@ -77,6 +92,17 @@
         "state": {
           "none": "—"
         }
+      },
+      "alarm_phone": {
+        "name": "Alarm on phone",
+        "state": {
+          "none": "—"
+        }
+      }
+    },
+    "time": {
+      "alarm_time": {
+        "name": "Set the alarm at"
       }
     }
   },

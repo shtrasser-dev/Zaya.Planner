@@ -34,9 +34,10 @@ from homeassistant.components.calendar import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
-from .const import CALENDAR_STORAGE_PATH, DOMAIN, TripKind
+from .const import CALENDAR_STORAGE_PATH, DOMAIN, SIGNAL_CALENDARS_UPDATED, TripKind
 from .details import EventDetails
 from .entity import HouseholdEntity
 from .household import Person
@@ -241,6 +242,7 @@ class PersonCalendar(HouseholdEntity, CalendarEntity):
                 raise HomeAssistantError(f"Error while deleting event: {err}") from err
             await self._file.async_save(self._calendar)
         await self.async_update_ha_state(force_refresh=True)
+        async_dispatcher_send(self.hass, f"{SIGNAL_CALENDARS_UPDATED}_{self.entry.entry_id}")
 
     # ------------------------------------------------------ Zaya actions
 
@@ -250,6 +252,7 @@ class PersonCalendar(HouseholdEntity, CalendarEntity):
             await self.hass.async_add_executor_job(EventStore(self._calendar).add, event)
             await self._file.async_save(self._calendar)
         await self.async_update_ha_state(force_refresh=True)
+        async_dispatcher_send(self.hass, f"{SIGNAL_CALENDARS_UPDATED}_{self.entry.entry_id}")
 
     async def async_set_details(
         self,
@@ -319,6 +322,7 @@ class PersonCalendar(HouseholdEntity, CalendarEntity):
                 raise HomeAssistantError(f"Error while updating event: {err}") from err
             await self._file.async_save(self._calendar)
         await self.async_update_ha_state(force_refresh=True)
+        async_dispatcher_send(self.hass, f"{SIGNAL_CALENDARS_UPDATED}_{self.entry.entry_id}")
 
     # ------------------------------------------------- actions (services)
 

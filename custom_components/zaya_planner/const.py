@@ -161,3 +161,11 @@ class TripKind(StrEnum):
     # Departure to arrive by the end
     PICKUP = "pickup"
     BOTH = "both"
+
+# House plan: how far ahead, how often it is worked out again (it also follows
+# every change of calendars and settings)
+PLAN_HORIZON: Final = timedelta(days=8)
+PLAN_REFRESH_INTERVAL: Final = timedelta(minutes=5)
+SIGNAL_CALENDARS_UPDATED: Final = f"{DOMAIN}_calendars_updated"
+SIGNAL_PLAN_UPDATED: Final = f"{DOMAIN}_plan_updated"
+DEFAULT_ALARM_TIME: Final = "21:00:00"

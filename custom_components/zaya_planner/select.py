@@ -33,6 +33,7 @@ async def async_setup_entry(
             for entity in (
                 PersonCarSelect(entry, person),
                 UsuallyDrivesSelect(entry, person),
+                AlarmPhoneSelect(entry, person),
             )
         ]
     )
@@ -113,4 +114,45 @@ class UsuallyDrivesSelect(HouseholdEntity, SelectEntity):
         )
         await self.entry.runtime_data.settings.async_set_person(
             self.person, "usually_drives", entity_id
+        )
+
+
+class AlarmPhoneSelect(HouseholdEntity, SelectEntity):
+    """Android phone that gets the alarm for the person's wake-up."""
+
+    _entity_platform = "select"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, entry: ZayaPlannerConfigEntry, person: Person) -> None:
+        """Initialize the setting."""
+        super().__init__(entry, person=person, key="alarm_phone")
+        self.person = person
+
+    def _phones(self) -> list[str]:
+        """Return notify actions of phones with the Home Assistant app."""
+        services = self.hass.services.async_services_for_domain("notify")
+        return sorted(name for name in services if name.startswith("mobile_app_"))
+
+    @property
+    @override
+    def options(self) -> list[str]:
+        """Return “none” and the phones."""
+        current = self.entry.runtime_data.settings.person(self.person)["alarm_notify"]
+        phones = self._phones()
+        if current and current not in phones:
+            # A phone that is off right now stays selectable
+            phones.append(current)
+        return [NONE_OPTION, *phones]
+
+    @property
+    @override
+    def current_option(self) -> str:
+        """Return the chosen phone."""
+        return self.entry.runtime_data.settings.person(self.person)["alarm_notify"] or NONE_OPTION
+
+    @override
+    async def async_select_option(self, option: str) -> None:
+        """Choose the phone."""
+        await self.entry.runtime_data.settings.async_set_person(
+            self.person, "alarm_notify", None if option == NONE_OPTION else option
         )

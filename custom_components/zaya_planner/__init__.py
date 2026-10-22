@@ -22,6 +22,7 @@ from .const import (
     DOMAIN,
 )
 from .executor import Executor
+from .house import HousePlanner
 from .household import Car, HouseholdSettings, Person, cars_from_entry, people_from_entry
 from .services import async_setup_services
 from .store import TaskManager
@@ -37,6 +38,7 @@ PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
+    Platform.TIME,
 ]
 
 CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
@@ -51,6 +53,7 @@ class ZayaPlannerData:
     settings: HouseholdSettings
     people: list[Person]
     cars: list[Car]
+    house: HousePlanner
     # Person calendars by person entity id (filled by the calendar platform)
     calendars: dict[str, PersonCalendar] = field(default_factory=dict)
 
@@ -77,6 +80,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) 
         settings=settings,
         people=people_from_entry(hass, entry),
         cars=cars_from_entry(entry),
+        house=HousePlanner(hass, entry),
     )
     _async_remove_stale_devices(hass, entry)
 
@@ -93,6 +97,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) 
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Calendars are loaded by now: work out the house plan and keep it fresh
+    entry.runtime_data.house.async_start()
 
     # Run tasks once Home Assistant has started: scripts are loaded by then
     entry.async_on_unload(async_at_started(hass, executor.async_start))

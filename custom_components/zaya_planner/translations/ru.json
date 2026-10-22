@@ -39,6 +39,9 @@
     "calendar": {
       "schedule": {
         "name": "Расписание"
+      },
+      "house_plan": {
+        "name": "План дома"
       }
     },
     "sensor": {
@@ -50,6 +53,18 @@
       },
       "tasks": {
         "name": "План"
+      },
+      "first_wake_up": {
+        "name": "Первый подъём"
+      },
+      "next_wake_up": {
+        "name": "Подъём"
+      },
+      "next_departure": {
+        "name": "Выезд"
+      },
+      "first_departure": {
+        "name": "Первый выезд дня"
       }
     },
     "number": {
@@ -77,6 +92,17 @@
         "state": {
           "none": "—"
         }
+      },
+      "alarm_phone": {
+        "name": "Будильник на телефон",
+        "state": {
+          "none": "—"
+        }
+      }
+    },
+    "time": {
+      "alarm_time": {
+        "name": "Ставить будильник в"
       }
     }
   },
