@@ -100,6 +100,27 @@ actions:
       rule_id: "{{ this.entity_id }}"
 ```
 
+## Family schedule (in progress)
+
+The next part plans the house from the family's days; see [docs/design.md](docs/design.md).
+Done so far (step 1 of 6):
+
+- **People**: in **Configure**, choose who takes part (from Settings → People; children can be
+  added there without a login). Each person becomes a device “Zaya: Name” with settings:
+  *Getting ready* (minutes), *Wake up for trips*, *Car*, *Usually drives*.
+- **Cars**: **Add car** on the integration page: name and charger switch. Each car is a device
+  “Zaya: Leaf” with *Charged before departure* (minutes).
+- **Person calendars**: , ordinary Home Assistant calendars (iCalendar
+  files, with repeats and single-occurrence changes). Besides the usual fields an event has
+  *Kind* (event, wake-up, cancellation) and a *Trip*: take there / pick up / both, who goes,
+  who drives, car, travel time. These fields are kept when the event is edited in the
+  Calendar panel.
+- Actions on person calendars: ,   (one occurrence or the series),  (events with their trip fields).
+  Trip defaults: the calendar's owner and who usually drives them go; the only person with a
+  car drives; the driver's car; the travel time of the last trip with the same title.
+
+Next: wake-ups and departures, the house plan, anchors for rules.
+
 ## Task
 
 | Field | Meaning |
@@ -246,9 +267,9 @@ content: >-
    `zaya_planner_task_done` / `zaya_planner_task_failed` events, logbook.
 3. ✅ Rules as automations: blueprints “on for a while”, “lights at night”, “charge by departure”;
    built-in `zaya_planner.ensure_state`.
-4. A test Home Assistant instance, installation through HACS.
-5. Moving real tasks over, one at a time.
-6. Optionally, a custom Lovelace card.
+4. Family schedule: people, cars, person calendars with trips (in progress, see [design](docs/design.md)).
+5. House plan from the family schedule, then a custom card.
+6. Moving the real house over, one task at a time.
 
 ## Development
 

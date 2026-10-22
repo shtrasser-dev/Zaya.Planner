@@ -216,7 +216,7 @@ trip fields with an action form.
 
 ## 6. Steps
 
-1. **Data**: people (from People) and cars as devices with settings; person calendars with
+1. ✅ **Data**: people (from People) and cars as devices with settings; person calendars with
    trip fields; a form action for trip fields.
 2. **House plan**: wake-ups and departures, cancellations, the “House plan” calendar,
    anchor sensors, Android alarm.
