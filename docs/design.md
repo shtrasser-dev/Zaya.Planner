@@ -220,7 +220,7 @@ trip fields with an action form.
    trip fields; a form action for trip fields.
 2. ✅ **House plan**: wake-ups and departures, cancellations, the “House plan” calendar,
    anchor sensors, Android alarm.
-3. **Rules**: “window around an anchor” blueprint, charge by first departure, “time to plan”
+3. ✅ **Rules** (device triggers of people — wake-up, departure — still to do): “window around an anchor” blueprint, charge by first departure, “time to plan”
    trigger, device triggers, `upsert` → `unchanged`.
 4. **Weekly timetables**.
 5. **Card**: family schedule, event form, timetable, house plan.

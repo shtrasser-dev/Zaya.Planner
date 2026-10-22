@@ -61,6 +61,8 @@ Then **Create automation** from it and fill in the form.
 | On for a while | `https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/on_for_a_while.yaml` | Turns devices on at a set time for N minutes on the chosen days (floor heating, a pump) |
 | Lights at night | `https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/night_light.yaml` | Keeps lights on from sunset to sunrise, with offsets |
 | Charge by departure | `https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/charge_by_departure.yaml` | Charges so that charging ends before a departure (from a helper or a sensor) |
+| Window around an anchor | `https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/window_around_anchor.yaml` | Devices on from X min before to Y min after the earliest of chosen anchors (e.g. floor heating around wake-ups), with optional conditions |
+| Charge a Zaya car | `https://github.com/shtrasser-dev/Zaya.Planner/blob/main/blueprints/automation/zaya_planner/charge_zaya_car.yaml` | Charges a car of the family schedule for its first departure of the day; charger and margin are the car's settings |
 
 Each blueprint plans two tasks, “on” and “off” (the “off” runs however late), and plans
 again when a task of the rule ends, at a fixed time every day, after Home Assistant starts
@@ -103,7 +105,7 @@ actions:
 ## Family schedule (in progress)
 
 The next part plans the house from the family's days; see [docs/design.md](docs/design.md).
-Done so far (steps 1–2 of 6):
+Done so far (steps 1–3 of 6):
 
 - **People**: in **Configure**, choose who takes part (from Settings → People; children can be
   added there without a login). Each person becomes a device “Zaya: Name” with settings:
@@ -140,7 +142,13 @@ up to date on every change.
   at that time the phone gets an alarm for tomorrow's wake-up. If the wake-up moves later, the
   phone gets a notification to fix the alarm.
 
-Next: rules from anchors (floor heating around a wake-up, charging for the first departure).
+**Rules from the plan** (step 3): blueprints *Window around an anchor* (floor heating around
+wake-ups) and *Charge a Zaya car* (for its first departure of the day; the car's
+*First departure of the day* sensor carries its charger and margin). The Zaya Planner device has
+a trigger *House plan changed* for your own automations. `upsert` with the same data
+answers `result: unchanged` and changes nothing, so rules can plan again as often as they like.
+
+Next: weekly timetables, then the dashboard card.
 
 ## Task
 
