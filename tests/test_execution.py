@@ -179,7 +179,7 @@ async def test_calendar_and_sensors(
         "2026-10-21T16:00:00+03:00",
         "2026-10-21T16:30:00+03:00",
     )
-    assert "16:00 switch.light: on — not run yet" in event["description"]
+    assert "16:00 light: on — not run yet" in event["description"]
     assert hass.states.get("sensor.zaya_planner_next_step").state == "2026-10-21T13:00:00+00:00"
     assert hass.states.get("sensor.zaya_planner_plans").state == "1"
 
