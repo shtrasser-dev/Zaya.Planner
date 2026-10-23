@@ -144,9 +144,9 @@ plans that are already frozen or running.
 ### 4.2 Statuses
 
 ```
-planned ──(freeze time)──▶ frozen ──(first step due)──▶ running ──▶ done / done_with_errors
+planned ──(freeze time)──▶ frozen ──(first step due)──▶ running ──▶ done
    │                                                       │
-   └──(cancel_plan, set_plan without steps)──▶ cancelled   └──(first step not done in time)──▶ failed
+   └──(cancel_plan, set_plan without steps)──▶ cancelled   └──(any step not done)──▶ failed
 ```
 
 | Plan | Meaning |
@@ -155,9 +155,8 @@ planned ──(freeze time)──▶ frozen ──(first step due)──▶ runn
 | `frozen` | Nobody but a person may change or cancel it |
 | `running` | Its first step is due; the other steps wait for their turn |
 | `done` | Every step done |
-| `done_with_errors` | Some step after the first was not done; the others were run |
-| `failed` | The first step was not done in time: the rest is not run |
-| `cancelled` | Cancelled before it ran |
+| `failed` | A step was not done: the rest is not run, the failure instructions run (5.1) |
+| `cancelled` | Cancelled (by its owner before it froze, or by a person) |
 
 | Step | Meaning |
 |---|---|
@@ -174,7 +173,8 @@ planned ──(freeze time)──▶ frozen ──(first step due)──▶ runn
 - **`zaya_planner.add_step`** (owner, `at`, `devices` + `state` or `action` + `data`): adds a step
   to the owner's **draft**. Each step has its own form in the visual editor; steps may be added in
   conditions and loops.
-- **`zaya_planner.set_plan`** (owner, `summary`, freezing, optionally `steps` as a list for YAML):
+- **`zaya_planner.set_plan`** (owner, `summary`, freezing, `on_failure` (5.1), optionally `steps`
+  as a list for YAML):
   turns the draft into the owner's next plan, replacing the one there was. With no steps it cancels
   the next plan.
 - A draft belongs to **one run** (the Home Assistant context of the automation run, shared by the
@@ -223,14 +223,33 @@ and marked in the plan's attributes. No notification.
 
 ## 5. Execution
 
-- The first step has the **lateness limit** (an option): not done in time (e.g. Home Assistant was
-  off) → the plan **failed**, the other steps are not run, a notification is sent.
-- Once a plan runs, its other steps are run **however late**: “off” always happens.
-- A step that is still retrying when the next one is due becomes `failed`, and the next one runs.
-- A step after the first that fails does not stop the plan: the others are run, the plan is
-  `done_with_errors`, a notification is sent. *(Proposed; to be confirmed.)*
 - Steps answer `{ok, reason}` as tasks do today (`ensure_state` or a step script); retries after
   1, 1, 2, 5 minutes, then every 5.
+- A step is **not done** when its retries have not succeeded by the time the next step is due
+  (the last step: by the lateness limit after its time), or when the first step could not start
+  within the **lateness limit** (an option; e.g. Home Assistant was off).
+- Once a plan runs, its later steps are run however late, as long as the plan does not fail.
+- **Any** step not done → the plan **failed**: its remaining steps are `cancelled`, the failure
+  instructions run (5.1), the event `zaya_planner_plan_failed` is fired. The first, a middle and the
+  last step are treated alike; nothing is guessed.
+
+### 5.1 Failure instructions
+
+`set_plan` may name a script, `on_failure`, that Zaya Planner runs when the plan fails, with the
+fields `plan` (summary, owner), `step` (the step that failed: time, what), `reason`, `done` (the
+steps that were done). The script decides: undo (turn the charger off), notify, plan again, or
+nothing.
+
+```yaml
+- action: zaya_planner.set_plan
+  data: { owner: "{{ this.entity_id }}", summary: Зарядка Leaf, freeze_at: "23:00",
+          on_failure: script.leaf_charging_failed }
+```
+
+- No `on_failure`: the usual failure notification (the “Notifications” option) is sent.
+- The instructions themselves fail: a logbook entry and the usual notification; they are not
+  retried.
+- A plan cancelled by a person is not a failure: `on_failure` does not run.
 - Events `zaya_planner_plan_done` and `zaya_planner_plan_failed`; a plan that ends fires
   “time to plan”.
 - Plans are written to disk at once; after a restart running plans carry on.
@@ -252,7 +271,7 @@ be run by hand from the script page, and may return an answer.
 | What | Code | Russian |
 |---|---|---|
 | Actions | `add_step`, `set_plan`, `cancel_plan`, `get_plans`, `find_events`, `ensure_state` | Добавить шаг, Поставить план, Отменить план, Получить планы, Найти события, Включить или выключить и проверить |
-| Plan fields | `owner`, `summary`, `steps`, `freeze_at`, `freeze_before`, `force` | Владелец, Название, Шаги, Заморозить в, Заморозить за, Вручную |
+| Plan fields | `owner`, `summary`, `steps`, `freeze_at`, `freeze_before`, `on_failure`, `force` | Владелец, Название, Шаги, Заморозить в, Заморозить за, При сбое, Вручную |
 | Step fields | `at`, `devices`, `state`, `action`, `data` | Когда, Устройства, Состояние, Действие, Данные |
 | Calendar | `calendar.zaya_planner_plans` | Планы |
 | Sensors | `sensor.zaya_planner_next_step`, `sensor.zaya_planner_failed_plans`, `sensor.zaya_planner_plans`, `sensor.zaya_planner_event_errors` | Следующий шаг, Сбойные планы, Планы, Ошибки в событиях |
@@ -260,7 +279,7 @@ be run by hand from the script page, and may return an answer.
 | Trigger | `time_to_plan` | Пора планировать |
 | Options | lateness, time to fix, retention, notifications, allowed actions, calendars, tags, keys | Допустимое опоздание первого шага, Время на исправление, Хранить завершённые планы, Уведомления, Разрешённые действия, Календари, Теги, Ключи |
 
-The word “task” goes; there are plans and steps. Status `skipped` goes (it is `failed`).
+The word “task” goes; there are plans and steps. Statuses `skipped` and `done_with_errors` do not exist: a plan is done or failed.
 
 ## 8. What changes in the code
 
@@ -287,11 +306,12 @@ The word “task” goes; there are plans and steps. Status `skipped` goes (it i
 
 ## 10. Open questions
 
-- A failed step after the first: run the others and mark `done_with_errors` (proposed in 5)?
+None at the moment.
 
 ## 11. Later
 
 - “Finish now” for a running plan (run its remaining steps at once).
+- `on_cancel`: instructions for a plan cancelled by a person while it runs.
 - Android alarm for a plan or a time.
 - Travel time from maps with traffic (Waze free / 2GIS paid; Yandex too expensive).
 - One-way export of plans to Google Calendar.
