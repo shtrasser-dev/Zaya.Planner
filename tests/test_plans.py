@@ -80,7 +80,6 @@ async def test_steps_of_one_run(hass: HomeAssistant, setup_entry: MockConfigEntr
     ("steps", "key"),
     [
         ([LIGHTS[1], LIGHTS[0]], "steps_not_in_order"),
-        ([step("2026-10-21T11:00:00+00:00")], "step_in_past"),
         ([{"at": "2026-10-21T13:00:00+00:00", "action": "script.other"}], "action_not_allowed"),
         ([{"at": "2026-10-21T13:00:00+00:00", "devices": ["switch.light"]}], "state_required"),
     ],
@@ -92,6 +91,33 @@ async def test_wrong_plans(
     with pytest.raises(ServiceValidationError) as err:
         await set_plan(hass, steps)
     assert err.value.translation_key == key
+
+
+async def test_step_times(hass: HomeAssistant, setup_entry: MockConfigEntry) -> None:
+    """Minutes before or after a time; a step without a time is left out."""
+    response = await build_plan(
+        hass,
+        [
+            {**step("2026-10-21T14:00:00+00:00"), "before": "90"},
+            {**step("2026-10-21T14:00:00+00:00", state="off"), "before": 30, "after": 10},
+            {**step("", state="off")},
+        ],
+    )
+    assert [s["at"] for s in response["plan"]["steps"]] == [
+        "2026-10-21T15:30:00+03:00",
+        "2026-10-21T16:40:00+03:00",
+    ]
+
+    # A module called without a departure adds no steps: its plan is cancelled
+    assert (await build_plan(hass, [step("")]))["result"] == "cancelled"
+
+
+async def test_past_plan_is_not_made(hass: HomeAssistant, setup_entry: MockConfigEntry) -> None:
+    """Too late for a plan: nothing changes, no error."""
+    await set_plan(hass, LIGHTS)
+    response = await set_plan(hass, [step("2026-10-21T11:00:00+00:00"), LIGHTS[1]])
+    assert response == {"result": "past", "plan": None}
+    assert [p["start"] for p in await get_plans(hass)] == ["2026-10-21T16:00:00+03:00"]
 
 
 async def test_freeze_and_conflicts(

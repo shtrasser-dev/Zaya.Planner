@@ -8,7 +8,7 @@ from typing import Any
 
 from homeassistant.util import dt as dt_util
 
-from .const import LOCKED_STATUSES, OPEN_STATUSES, PlanStatus, StepStatus
+from .const import DISPLAY_SPAN, LOCKED_STATUSES, OPEN_STATUSES, PlanStatus, StepStatus
 
 
 def _dt_to_str(value: datetime | None) -> str | None:
@@ -138,6 +138,8 @@ class Plan:
     freeze_moment: datetime | None = None
     # Script run when the plan fails
     on_failure: str | None = None
+    # On the calendar: one event (span) or one per step (steps)
+    display: str = DISPLAY_SPAN
     created_at: datetime = field(default_factory=dt_util.utcnow)
     updated_at: datetime = field(default_factory=dt_util.utcnow)
     finished_at: datetime | None = None
@@ -186,6 +188,7 @@ class Plan:
             "freeze": self.freeze.as_dict(),
             "freeze_moment": _dt_to_str(self.freeze_moment),
             "on_failure": self.on_failure,
+            "display": self.display,
             "created_at": _dt_to_str(self.created_at),
             "updated_at": _dt_to_str(self.updated_at),
             "finished_at": _dt_to_str(self.finished_at),
@@ -205,6 +208,7 @@ class Plan:
             freeze=Freeze.from_dict(data.get("freeze")),
             freeze_moment=_dt_from_str(data.get("freeze_moment")),
             on_failure=data.get("on_failure"),
+            display=data.get("display") or DISPLAY_SPAN,
             created_at=_dt_from_str(data.get("created_at")) or dt_util.utcnow(),
             updated_at=_dt_from_str(data.get("updated_at")) or dt_util.utcnow(),
             finished_at=_dt_from_str(data.get("finished_at")),

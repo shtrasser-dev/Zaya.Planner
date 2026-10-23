@@ -76,6 +76,13 @@ ATTR_FREEZE_AT: Final = "freeze_at"
 ATTR_FREEZE_BEFORE: Final = "freeze_before"
 ATTR_ON_FAILURE: Final = "on_failure"
 ATTR_FORCE: Final = "force"
+# How a plan is shown on the calendar: one event from first to last step, or one per step
+ATTR_DISPLAY: Final = "display"
+DISPLAY_SPAN: Final = "span"
+DISPLAY_STEPS: Final = "steps"
+# The time of a step moved by minutes: before (earlier) or after (later)
+ATTR_BEFORE: Final = "before"
+ATTR_AFTER: Final = "after"
 ATTR_STATUS: Final = "status"
 ATTR_PLANS: Final = "plans"
 ATTR_ENTITY_ID: Final = "entity_id"
@@ -135,6 +142,8 @@ class PlanResult(StrEnum):
     OVERLAPS = "overlaps"
     # It would change or cancel a frozen plan
     FROZEN = "frozen"
+    # The first step is in the past: nothing is planned
+    PAST = "past"
 
 
 # Fired when rules should plan again (device trigger “time to plan”): Home
@@ -164,4 +173,8 @@ ATTR_FILTER: Final = "filter"
 ATTR_START: Final = "start"
 ATTR_END: Final = "end"
 ATTR_FIRST_OF_DAY: Final = "first_of_day"
+# Only events whose time (start, or start minus the attribute) has not come yet
+ATTR_ONLY_FUTURE: Final = "only_future"
+# The time of an event is its start minus the duration in this attribute
+ATTR_SUBTRACT: Final = "subtract"
 ATTR_EVENTS: Final = "events"

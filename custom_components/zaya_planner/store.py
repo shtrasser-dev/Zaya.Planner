@@ -20,6 +20,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    DISPLAY_SPAN,
     DOMAIN,
     LOGBOOK_NAME,
     SIGNAL_PLANS_UPDATED,
@@ -112,6 +113,7 @@ class PlanManager:
         summary: str = "",
         freeze: Freeze | None = None,
         on_failure: str | None = None,
+        display: str = DISPLAY_SPAN,
         force: bool = False,
     ) -> tuple[Plan | None, PlanResult]:
         """Make `steps` the owner's next plan.
@@ -140,7 +142,8 @@ class PlanManager:
         plan = self._next_plan(owner)
         if plan is not None and (
             _same_steps(plan.steps, steps)
-            and (plan.summary, plan.freeze, plan.on_failure) == (summary, freeze, on_failure)
+            and (plan.summary, plan.freeze, plan.on_failure, plan.display)
+            == (summary, freeze, on_failure, display)
         ):
             if overlapping:
                 await self._async_changed()
@@ -156,6 +159,7 @@ class PlanManager:
         plan.summary = summary
         plan.freeze = freeze
         plan.on_failure = on_failure
+        plan.display = display
         plan.updated_at = now
         plan.freeze_moment = self.freeze_moment(plan)
         self.log(

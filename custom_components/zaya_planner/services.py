@@ -6,7 +6,7 @@ Steps: ensure_state (turn on/off and confirm). Calendars: find_events.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import probatio
@@ -24,10 +24,13 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_ACTION,
+    ATTR_AFTER,
     ATTR_AT,
+    ATTR_BEFORE,
     ATTR_CALENDARS,
     ATTR_DATA,
     ATTR_DEVICES,
+    ATTR_DISPLAY,
     ATTR_END,
     ATTR_ENTITY_ID,
     ATTR_EVENTS,
@@ -37,16 +40,20 @@ from .const import (
     ATTR_FREEZE_AT,
     ATTR_FREEZE_BEFORE,
     ATTR_ON_FAILURE,
+    ATTR_ONLY_FUTURE,
     ATTR_OWNER,
     ATTR_PLANS,
     ATTR_START,
     ATTR_STATE,
     ATTR_STATUS,
     ATTR_STEPS,
+    ATTR_SUBTRACT,
     ATTR_SUMMARY,
     BUILTIN_ACTIONS,
     CONF_ACTION_PREFIX,
     DEFAULT_ACTION_PREFIX,
+    DISPLAY_SPAN,
+    DISPLAY_STEPS,
     DOMAIN,
     DRAFT_LIFETIME,
     EVENTS_HORIZON,
@@ -56,6 +63,7 @@ from .const import (
     SERVICE_FIND_EVENTS,
     SERVICE_GET_PLANS,
     SERVICE_SET_PLAN,
+    PlanResult,
     PlanStatus,
 )
 from .description import Filter
@@ -67,7 +75,11 @@ from .store import as_aware
 DRAFTS = f"{DOMAIN}_drafts"
 
 STEP_FIELDS = {
-    probatio.Required(ATTR_AT): cv.datetime,
+    # No time (empty): the step is left out, e.g. a module called without a departure
+    probatio.Optional(ATTR_AT): probatio.Any(None, "", cv.datetime),
+    # Earlier or later than `at` by minutes
+    probatio.Optional(ATTR_BEFORE, default=0): probatio.Coerce(int),
+    probatio.Optional(ATTR_AFTER, default=0): probatio.Coerce(int),
     # What: devices to turn on/off, or an action with data
     probatio.Optional(ATTR_DEVICES): cv.entity_ids,
     probatio.Optional(ATTR_STATE): probatio.In(["on", "off"]),
@@ -97,6 +109,9 @@ SET_PLAN_SCHEMA = probatio.All(
             ),
             probatio.Optional(ATTR_ON_FAILURE): cv.entity_domain("script"),
             probatio.Optional(ATTR_STEPS): [_step_schema(STEP_FIELDS)],
+            probatio.Optional(ATTR_DISPLAY, default=DISPLAY_SPAN): probatio.In(
+                [DISPLAY_SPAN, DISPLAY_STEPS]
+            ),
             probatio.Optional(ATTR_FORCE, default=False): cv.boolean,
         }
     ),
@@ -133,6 +148,8 @@ FIND_EVENTS_SCHEMA = probatio.Schema(
         probatio.Optional(ATTR_START): cv.datetime,
         probatio.Optional(ATTR_END): cv.datetime,
         probatio.Optional(ATTR_FIRST_OF_DAY, default=False): cv.boolean,
+        probatio.Optional(ATTR_ONLY_FUTURE, default=False): cv.boolean,
+        probatio.Optional(ATTR_SUBTRACT): cv.string,
     }
 )
 
@@ -153,8 +170,10 @@ def _get_entry(hass: HomeAssistant) -> Any:
     return entries[0]
 
 
-def _step(hass: HomeAssistant, data: dict[str, Any]) -> Step:
-    """Return a step from action data, or explain what is wrong with it."""
+def _step(hass: HomeAssistant, data: dict[str, Any]) -> Step | None:
+    """Return a step from action data (None without a time), or explain what is wrong."""
+    if not data.get(ATTR_AT):
+        return None
     entry = _get_entry(hass)
     if ATTR_DEVICES in data:
         if ATTR_STATE not in data:
@@ -168,7 +187,9 @@ def _step(hass: HomeAssistant, data: dict[str, Any]) -> Step:
         # Only the built-in action and a named subset of scripts may be steps
         if action not in BUILTIN_ACTIONS and not action.startswith(prefix):
             raise _error("action_not_allowed", action=action, prefix=prefix)
-    return Step(at=as_aware(data[ATTR_AT]), action=action, data=step_data)
+    at = as_aware(data[ATTR_AT]) - timedelta(minutes=data.get(ATTR_BEFORE, 0))
+    at += timedelta(minutes=data.get(ATTR_AFTER, 0))
+    return Step(at=at, action=action, data=step_data)
 
 
 def _drafts(hass: HomeAssistant) -> dict[tuple[str, str], tuple[datetime, list[Step]]]:
@@ -181,7 +202,8 @@ def _drafts(hass: HomeAssistant) -> dict[tuple[str, str], tuple[datetime, list[S
 
 
 async def _async_add_step(call: ServiceCall) -> None:
-    step = _step(call.hass, dict(call.data))
+    if (step := _step(call.hass, dict(call.data))) is None:
+        return
     key = (call.data[ATTR_OWNER], call.context.id)
     created, steps = _drafts(call.hass).get(key, (dt_util.utcnow(), []))
     _drafts(call.hass)[key] = (created, [*steps, step])
@@ -194,7 +216,8 @@ async def _async_set_plan(call: ServiceCall) -> ServiceResponse:
     force = call.data[ATTR_FORCE]
     # The steps added in this run (also by scripts it called), then those given here
     _, steps = _drafts(hass).pop((owner, call.context.id), (None, []))
-    steps = [*steps, *(_step(hass, dict(step)) for step in call.data.get(ATTR_STEPS, []))]
+    given = (_step(hass, dict(step)) for step in call.data.get(ATTR_STEPS, []))
+    steps = [*steps, *(step for step in given if step is not None)]
 
     if not steps:
         cancelled, result = await manager.async_cancel(owner, force=force)
@@ -203,7 +226,8 @@ async def _async_set_plan(call: ServiceCall) -> ServiceResponse:
     if any(later.at < earlier.at for earlier, later in zip(steps, steps[1:])):
         raise _error("steps_not_in_order")
     if steps[0].at <= dt_util.utcnow():
-        raise _error("step_in_past")
+        # Too late for this plan (e.g. its first step was a while ago): nothing changes
+        return {"result": str(PlanResult.PAST), "plan": None}
     freeze = Freeze(at=call.data.get(ATTR_FREEZE_AT), before=call.data.get(ATTR_FREEZE_BEFORE))
     plan, result = await manager.async_set_plan(
         owner,
@@ -211,6 +235,7 @@ async def _async_set_plan(call: ServiceCall) -> ServiceResponse:
         summary=call.data[ATTR_SUMMARY],
         freeze=freeze,
         on_failure=call.data.get(ATTR_ON_FAILURE),
+        display=call.data[ATTR_DISPLAY],
         force=force,
     )
     return {"result": str(result), "plan": plan_info(hass, plan) if plan else None}
@@ -251,14 +276,24 @@ async def _async_find_events(call: ServiceCall) -> ServiceResponse:
     if calendars and (other := [c for c in calendars if c not in reader.calendars]):
         raise _error("not_a_chosen_calendar", calendars=", ".join(other))
     event_filter = Filter.parse(call.data[ATTR_FILTER])
-    if unknown := event_filter.unknown_words(reader.dictionary):
+    unknown = event_filter.unknown_words(reader.dictionary)
+    subtract = call.data.get(ATTR_SUBTRACT)
+    if subtract and reader.dictionary.key(subtract) is None:
+        unknown.append(subtract)
+    if unknown:
         raise _error("unknown_filter_words", words=", ".join(unknown))
     start = as_aware(call.data[ATTR_START]) if ATTR_START in call.data else dt_util.utcnow()
     end = as_aware(call.data[ATTR_END]) if ATTR_END in call.data else start + EVENTS_HORIZON
     if end <= start:
         raise _error("end_before_start")
     events = await reader.async_find(
-        event_filter, start, end, calendars, call.data[ATTR_FIRST_OF_DAY]
+        event_filter,
+        start,
+        end,
+        calendars,
+        first_of_day=call.data[ATTR_FIRST_OF_DAY],
+        only_future=call.data[ATTR_ONLY_FUTURE],
+        subtract=subtract,
     )
     return {ATTR_EVENTS: [event.as_dict() for event in events]}
 

@@ -74,6 +74,12 @@
         "failed": "Failed",
         "cancelled": "Cancelled"
       }
+    },
+    "display": {
+      "options": {
+        "span": "One event",
+        "steps": "Each step"
+      }
     }
   },
   "services": {
@@ -87,7 +93,15 @@
         },
         "at": {
           "name": "When",
-          "description": "When the step runs."
+          "description": "When the step runs. Empty: the step is left out (e.g. there is no departure)."
+        },
+        "before": {
+          "name": "Before",
+          "description": "Minutes earlier than “When”."
+        },
+        "after": {
+          "name": "After",
+          "description": "Minutes later than “When”."
         },
         "devices": {
           "name": "Devices",
@@ -109,7 +123,7 @@
     },
     "set_plan": {
       "name": "Set plan",
-      "description": "Makes the steps added in this run the owner's next plan, replacing the one there was. With no steps it cancels the next plan. A frozen or running plan is not changed.",
+      "description": "Makes the steps added in this run the owner's next plan, replacing the one there was. With no steps it cancels the next plan. A frozen or running plan is not changed; a plan whose first step is in the past is not made (result past).",
       "fields": {
         "owner": {
           "name": "Owner",
@@ -138,6 +152,10 @@
         "force": {
           "name": "Force",
           "description": "A change by a person: also replace a frozen plan."
+        },
+        "display": {
+          "name": "On the calendar",
+          "description": "One event from the first step to the last, or a short event for each step."
         }
       }
     },
@@ -206,6 +224,14 @@
         "first_of_day": {
           "name": "First of each day",
           "description": "Only the first matching event of each day."
+        },
+        "only_future": {
+          "name": "Only future",
+          "description": "Only events whose time (the start, or the start minus the attribute) has not come yet."
+        },
+        "subtract": {
+          "name": "Minus attribute",
+          "description": "A key from the dictionary whose value is a duration (e.g. Travel: 40:00): the time of an event (at) is its start minus it."
         }
       }
     }
@@ -222,9 +248,6 @@
     },
     "steps_not_in_order": {
       "message": "The steps are not in time order."
-    },
-    "step_in_past": {
-      "message": "The first step is in the past."
     },
     "plan_not_open": {
       "message": "There is no such open plan."

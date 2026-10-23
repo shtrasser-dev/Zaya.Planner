@@ -155,6 +155,52 @@ async def test_first_step_too_late(
     assert switches.calls == []
 
 
+async def test_calendar_by_steps(
+    hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now, switches, hass_ws_client
+) -> None:
+    """A plan shown by steps: a short event per step; deleting one cancels the plan."""
+    response = await set_plan(hass, LIGHTS, summary="Lights", display="steps")
+    uid = response["plan"]["uid"]
+    events = await hass.services.async_call(
+        "calendar",
+        "get_events",
+        {
+            "entity_id": CALENDAR,
+            "start_date_time": "2026-10-21T00:00:00+00:00",
+            "end_date_time": "2026-10-22T00:00:00+00:00",
+        },
+        blocking=True,
+        return_response=True,
+    )
+    assert [(e["start"], e["summary"]) for e in events[CALENDAR]["events"]] == [
+        ("2026-10-21T16:00:00+03:00", "Lights: on"),
+        ("2026-10-21T16:30:00+03:00", "Lights: off"),
+    ]
+
+    client = await hass_ws_client(hass)
+    # Moving the “off” moves the whole plan
+    await client.send_json_auto_id(
+        {
+            "type": "calendar/event/update",
+            "entity_id": CALENDAR,
+            "uid": f"{uid}:1",
+            "event": {
+                "summary": "Lights: off",
+                "dtstart": "2026-10-21T16:45:00+03:00",
+                "dtend": "2026-10-21T16:46:00+03:00",
+            },
+        }
+    )
+    assert (await client.receive_json())["success"]
+    assert (await get_plans(hass))[0]["start"] == "2026-10-21T16:15:00+03:00"
+
+    await client.send_json_auto_id(
+        {"type": "calendar/event/delete", "entity_id": CALENDAR, "uid": f"{uid}:1"}
+    )
+    assert (await client.receive_json())["success"]
+    assert (await get_plans(hass))[0]["status"] == "cancelled"
+
+
 async def test_calendar_and_sensors(
     hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now, switches, hass_ws_client
 ) -> None:

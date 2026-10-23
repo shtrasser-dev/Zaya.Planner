@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 import logging
 from typing import Any
@@ -47,12 +47,15 @@ class FoundEvent:
     end: date | datetime
     description: str
     reading: Reading
+    # The start, or the start minus the duration in an attribute (None: no such duration)
+    at: date | datetime | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Return the event for an action response."""
         return {
             "calendar": self.calendar,
             "summary": self.summary,
+            "at": self.at.isoformat() if self.at is not None else None,
             "start": self.start.isoformat(),
             "end": self.end.isoformat(),
             "all_day": not isinstance(self.start, datetime),
@@ -77,6 +80,23 @@ class EventError:
     def key(self) -> tuple[str, str, str, str]:
         """The same mistake in every event of a series is one error."""
         return (self.code, self.calendar, self.summary, self.value)
+
+
+def _minus(event: FoundEvent, key: str) -> date | datetime | None:
+    """Return the start of an event minus the duration in an attribute, or None."""
+    value = event.reading.attributes.get(key)
+    duration = dt_util.parse_duration(value) if value else None
+    if duration is None or not isinstance(event.start, datetime):
+        return None
+    return event.start - duration
+
+
+def _is_future(at: date | datetime | None, now: datetime) -> bool:
+    if at is None:
+        return False
+    if isinstance(at, datetime):
+        return at > now
+    return at > now.date()
 
 
 def _day(start: date | datetime) -> date:
@@ -188,14 +208,16 @@ class EventReader:
                 continue
             for event in events:
                 description = event.description or ""
+                start = _local(event.start)
                 found.append(
                     FoundEvent(
                         calendar=entity_id,
                         summary=event.summary,
-                        start=_local(event.start),
+                        start=start,
                         end=_local(event.end),
                         description=description,
                         reading=self.dictionary.read(description),
+                        at=start,
                     )
                 )
         return sorted(found, key=by_start)
@@ -207,13 +229,26 @@ class EventReader:
         end: datetime,
         calendars: Iterable[str] | None = None,
         first_of_day: bool = False,
+        only_future: bool = False,
+        subtract: str | None = None,
     ) -> list[FoundEvent]:
-        """Return the events that fit a filter, by start."""
+        """Return the events that fit a filter, by start.
+
+        `subtract`: the time of an event is its start minus the duration in this
+        attribute (“Travel: 40:00”); without a duration the time is None.
+        `only_future`: only events whose time has not come yet.
+        """
         events = [
             event
             for event in await self.async_events(start, end, calendars)
             if event_filter.matches(event.reading)
         ]
+        if subtract:
+            key = self.dictionary.key(subtract) or subtract
+            events = [replace(event, at=_minus(event, key)) for event in events]
+        if only_future:
+            now = dt_util.now()
+            events = [event for event in events if _is_future(event.at, now)]
         return first_of_each_day(events) if first_of_day else events
 
     async def async_refresh(self) -> None:

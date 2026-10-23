@@ -26,8 +26,18 @@ def step_text(hass: HomeAssistant, step: Step) -> str:
         state = step.data.get(ATTR_STATE)
         return f"{names}: {message(hass, f'state_{state}')}" if state else names
     text = _name(hass, step.action)
-    if step.data:
-        text += " " + json.dumps(step.data, ensure_ascii=False, default=str)
+    data = dict(step.data)
+    state = data.pop(ATTR_STATE, None)
+    if state in ("on", "off"):
+        text += f": {message(hass, f'state_{state}')}"
+    elif state is not None:
+        data = {ATTR_STATE: state, **data}
+    if data:
+        values = ", ".join(
+            f"{key}: {value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)}"
+            for key, value in data.items()
+        )
+        text += f" ({values})"
     return text
 
 

@@ -196,6 +196,7 @@ async def test_find_events(
         {
             "calendar": "calendar.masha",
             "summary": "School",
+            "at": "2026-10-22T08:00:00+03:00",
             "start": "2026-10-22T08:00:00+03:00",
             "end": "2026-10-22T13:45:00+03:00",
             "all_day": False,
@@ -207,6 +208,15 @@ async def test_find_events(
 
     found = await find(hass, filter="#leaf")
     assert [e["summary"] for e in found] == ["Work", "School"]
+
+    # The time of an event: its start minus the travel time; without one, none
+    found = await find(hass, filter="#leaf", subtract="в пути")
+    assert [(e["summary"], e["at"]) for e in found] == [
+        ("Work", None),
+        ("School", "2026-10-22T07:20:00+03:00"),
+    ]
+    found = await find(hass, filter="#leaf", subtract="В пути", only_future=True)
+    assert [e["summary"] for e in found] == ["School"]
     found = await find(hass, filter="#LEAF", first_of_day=True)
     assert [e["summary"] for e in found] == ["Work"]
     found = await find(hass, filter="#leaf", calendars=["calendar.masha"])
@@ -219,6 +229,7 @@ async def test_find_events(
     ("data", "key"),
     [
         ({"filter": "#leaf #лиф\nВремя"}, "unknown_filter_words"),
+        ({"subtract": "Время"}, "unknown_filter_words"),
         ({"calendars": ["calendar.other"]}, "not_a_chosen_calendar"),
         ({"start": "2026-10-23 00:00:00", "end": "2026-10-22 00:00:00"}, "end_before_start"),
     ],

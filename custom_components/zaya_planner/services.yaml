@@ -6,9 +6,22 @@ add_step:
       selector:
         text:
     at:
-      required: true
       selector:
         datetime:
+    before:
+      selector:
+        number:
+          min: 0
+          max: 1440
+          unit_of_measurement: min
+          mode: box
+    after:
+      selector:
+        number:
+          min: 0
+          max: 1440
+          unit_of_measurement: min
+          mode: box
     devices:
       selector:
         entity:
@@ -59,6 +72,14 @@ set_plan:
         entity:
           filter:
             domain: script
+    display:
+      default: span
+      selector:
+        select:
+          translation_key: display
+          options:
+            - span
+            - steps
     steps:
       selector:
         object:
@@ -135,3 +156,11 @@ find_events:
       default: false
       selector:
         boolean:
+    only_future:
+      default: false
+      selector:
+        boolean:
+    subtract:
+      example: Travel
+      selector:
+        text:

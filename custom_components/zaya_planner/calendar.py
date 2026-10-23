@@ -20,10 +20,11 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import ZayaPlannerConfigEntry
-from .const import DOMAIN, EVENT_DURATION, PlanStatus
-from .display import plan_description
+from .const import ATTR_STATE, DISPLAY_STEPS, DOMAIN, EVENT_DURATION, PlanStatus, StepStatus
+from .display import plan_description, step_text
 from .entity import ZayaPlannerEntity
-from .models import Plan
+from .messages import message
+from .models import Plan, Step
 from .store import as_aware
 
 PARALLEL_UPDATES = 0
@@ -68,24 +69,28 @@ class PlansCalendar(ZayaPlannerEntity, CalendarEntity):
     @property
     @override
     def event(self) -> CalendarEvent | None:
-        """Return the current or next open plan."""
+        """Return the current or next event of an open plan."""
         now = dt_util.utcnow()
-        for plan in self.manager.plans:
-            if plan.is_open and _event_end(plan) > now:
-                return self._event(plan)
-        return None
+        events = [
+            event
+            for plan in self.manager.plans
+            if plan.is_open
+            for event in self._events(plan)
+            if event.end > now
+        ]
+        return min(events, key=lambda event: event.start, default=None)
 
     @override
     async def async_get_events(
         self, hass: HomeAssistant, start_date: datetime, end_date: datetime
     ) -> list[CalendarEvent]:
-        """Return plans between the given dates."""
+        """Return the events of plans between the given dates."""
         return [
-            self._event(plan)
+            event
             for plan in self.manager.plans
             if plan.status != PlanStatus.CANCELLED
-            and plan.start < end_date
-            and _event_end(plan) > start_date
+            for event in self._events(plan)
+            if event.start < end_date and event.end > start_date
         ]
 
     @override
@@ -95,8 +100,8 @@ class PlansCalendar(ZayaPlannerEntity, CalendarEntity):
         recurrence_id: str | None = None,
         recurrence_range: str | None = None,
     ) -> None:
-        """A person cancels a plan."""
-        if await self.manager.async_cancel_by_person(uid) is None:
+        """A person cancels a plan (deleting any of its events)."""
+        if await self.manager.async_cancel_by_person(uid.split(":")[0]) is None:
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="plan_not_open")
 
     @override
@@ -107,25 +112,51 @@ class PlansCalendar(ZayaPlannerEntity, CalendarEntity):
         recurrence_id: str | None = None,
         recurrence_range: str | None = None,
     ) -> None:
-        """A person moves a plan: all its steps move by as much as its start."""
-        plan = self.manager.get(uid)
+        """A person moves a plan: all its steps move by as much as the moved event."""
+        plan_uid, _, index = uid.partition(":")
+        plan = self.manager.get(plan_uid)
         start = event.get("dtstart")
         if plan is None or not isinstance(start, (date, datetime)):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="plan_not_open")
+        moved = plan.steps[int(index)].at if index else plan.start
         if not isinstance(start, datetime):
-            start = datetime.combine(start, plan.start.time())
-        delta = as_aware(start) - plan.start
-        if await self.manager.async_move_by_person(uid, delta) is None:
+            start = datetime.combine(start, moved.time())
+        delta = as_aware(start) - moved
+        if await self.manager.async_move_by_person(plan_uid, delta) is None:
             raise ServiceValidationError(
                 translation_domain=DOMAIN, translation_key="plan_started"
             )
 
-    def _event(self, plan: Plan) -> CalendarEvent:
+    def _events(self, plan: Plan) -> list[CalendarEvent]:
+        """One event from the first step to the last, or one short event per step."""
         icon = STATUS_ICONS.get(plan.status)
-        return CalendarEvent(
-            start=dt_util.as_local(plan.start),
-            end=dt_util.as_local(_event_end(plan)),
-            summary=f"{icon} {plan.display_summary}" if icon else plan.display_summary,
-            description=plan_description(self.hass, plan),
-            uid=plan.uid,
-        )
+        summary = f"{icon} {plan.display_summary}" if icon else plan.display_summary
+        description = plan_description(self.hass, plan)
+        if plan.display != DISPLAY_STEPS:
+            return [
+                CalendarEvent(
+                    start=dt_util.as_local(plan.start),
+                    end=dt_util.as_local(_event_end(plan)),
+                    summary=summary,
+                    description=description,
+                    uid=plan.uid,
+                )
+            ]
+        return [
+            CalendarEvent(
+                start=dt_util.as_local(step.at),
+                end=dt_util.as_local(step.at + EVENT_DURATION),
+                summary=f"{summary}: {self._step_summary(step)}",
+                description=description,
+                uid=f"{plan.uid}:{index}",
+            )
+            for index, step in enumerate(plan.steps)
+            if step.status != StepStatus.CANCELLED
+        ]
+
+    def _step_summary(self, step: Step) -> str:
+        """Only the state (“on”) when the step turns things on or off; the rest is in the description."""
+        state = step.data.get(ATTR_STATE)
+        if state in ("on", "off"):
+            return message(self.hass, f"state_{state}")
+        return step_text(self.hass, step)
