@@ -208,16 +208,16 @@ class EventReader:
                 continue
             for event in events:
                 description = event.description or ""
-                start = _local(event.start)
+                event_start = _local(event.start)
                 found.append(
                     FoundEvent(
                         calendar=entity_id,
                         summary=event.summary,
-                        start=start,
+                        start=event_start,
                         end=_local(event.end),
                         description=description,
                         reading=self.dictionary.read(description),
-                        at=start,
+                        at=event_start,
                     )
                 )
         return sorted(found, key=by_start)
