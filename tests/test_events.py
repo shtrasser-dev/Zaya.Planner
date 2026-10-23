@@ -11,13 +11,20 @@ from pytest_homeassistant_custom_component.common import (
     MockModule,
     MockPlatform,
     async_fire_time_changed,
+    async_capture_events,
     async_mock_service,
     mock_integration,
     mock_platform,
 )
 
 from custom_components.zaya_planner.config_flow import DEFAULT_OPTIONS
-from custom_components.zaya_planner.const import CONF_CALENDARS, CONF_KEYS, CONF_TAGS, DOMAIN
+from custom_components.zaya_planner.const import (
+    CONF_CALENDARS,
+    CONF_KEYS,
+    CONF_TAGS,
+    DOMAIN,
+    EVENT_TIME_TO_PLAN,
+)
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
@@ -106,7 +113,7 @@ def config_entry(calendars: dict[str, FakeCalendar]) -> MockConfigEntry:
         title="Zaya Planner",
         data={},
         version=1,
-        minor_version=3,
+        minor_version=4,
         options={
             **DEFAULT_OPTIONS,
             CONF_CALENDARS: ["calendar.masha", "calendar.dad", "calendar.gone"],
@@ -140,6 +147,7 @@ async def test_errors_in_events(
 ) -> None:
     """Mistakes are listed once; a new one is notified."""
     notifications = async_mock_service(hass, "persistent_notification", "create")
+    time_to_plan = async_capture_events(hass, EVENT_TIME_TO_PLAN)
     await settle(hass, frozen_now)
 
     state = hass.states.get(ERRORS)
@@ -152,6 +160,7 @@ async def test_errors_in_events(
     assert state.state == "4"
     # Known at the start: not notified
     assert notifications == []
+    fired = len(time_to_plan)
 
     calendars["masha"].set(
         [
@@ -161,6 +170,8 @@ async def test_errors_in_events(
     )
     await settle(hass, frozen_now)
     assert hass.states.get(ERRORS).state == "5"
+    # The calendar changed: rules plan again
+    assert len(time_to_plan) > fired
     assert len(notifications) == 1
     assert notifications[0].data["message"] == (
         "Club (Masha, 24.10): tag #lief is not in the dictionary"

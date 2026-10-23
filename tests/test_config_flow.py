@@ -1,4 +1,4 @@
-"""Tests of adding and configuring Zaya Planner."""
+"""Tests of adding, configuring and upgrading Zaya Planner."""
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -7,12 +7,14 @@ from custom_components.zaya_planner.config_flow import DEFAULT_OPTIONS
 from custom_components.zaya_planner.const import (
     CONF_ACTION_PREFIX,
     CONF_CALENDARS,
+    CONF_FIX_MINUTES,
     CONF_KEYS,
-    CONF_TAGS,
     CONF_LATENESS_HOURS,
     CONF_NOTIFY_ACTION,
     CONF_RETENTION_DAYS,
+    CONF_TAGS,
     DEFAULT_ACTION_PREFIX,
+    DEFAULT_FIX_MINUTES,
     DEFAULT_LATENESS_HOURS,
     DEFAULT_RETENTION_DAYS,
     DOMAIN,
@@ -35,6 +37,7 @@ async def test_user_flow(hass: HomeAssistant) -> None:
     assert result["title"] == "Zaya Planner"
     assert result["options"] == {
         CONF_LATENESS_HOURS: DEFAULT_LATENESS_HOURS,
+        CONF_FIX_MINUTES: DEFAULT_FIX_MINUTES,
         CONF_ACTION_PREFIX: DEFAULT_ACTION_PREFIX,
         CONF_RETENTION_DAYS: DEFAULT_RETENTION_DAYS,
         CONF_NOTIFY_ACTION: "",
@@ -80,6 +83,7 @@ async def test_options_flow(hass: HomeAssistant, setup_entry: MockConfigEntry) -
         result["flow_id"],
         {
             CONF_LATENESS_HOURS: 2,
+            CONF_FIX_MINUTES: 5.0,
             CONF_ACTION_PREFIX: " script.task_ ",
             CONF_RETENTION_DAYS: 7.0,
             CONF_NOTIFY_ACTION: " notify.mobile_app_phone ",
@@ -89,6 +93,7 @@ async def test_options_flow(hass: HomeAssistant, setup_entry: MockConfigEntry) -
     await hass.async_block_till_done()
     assert setup_entry.options == {
         CONF_LATENESS_HOURS: 2,
+        CONF_FIX_MINUTES: 5,
         CONF_ACTION_PREFIX: "script.task_",
         CONF_RETENTION_DAYS: 7,
         CONF_NOTIFY_ACTION: "notify.mobile_app_phone",
@@ -102,7 +107,7 @@ async def test_options_dictionary(hass: HomeAssistant, setup_entry: MockConfigEn
     """Tags are kept without “#”, each once; tags and keys must be words."""
     base = {
         CONF_LATENESS_HOURS: 5,
-        CONF_ACTION_PREFIX: "script.plan_",
+        CONF_ACTION_PREFIX: "script.step_",
         CONF_RETENTION_DAYS: 3,
         CONF_CALENDARS: ["calendar.masha"],
     }
@@ -146,7 +151,7 @@ async def test_rules_from_older_version_are_removed(hass: HomeAssistant) -> None
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.minor_version == 3
+    assert entry.minor_version == 4
     assert dict(entry.subentries) == {}
 
 
@@ -193,7 +198,7 @@ async def test_household_from_older_version_is_removed(hass: HomeAssistant, tmp_
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.minor_version == 3
+    assert entry.minor_version == 4
     assert dict(entry.subentries) == {}
     assert "people" not in entry.options
     assert devices.async_get(person.id) is None
@@ -205,51 +210,43 @@ async def test_household_from_older_version_is_removed(hass: HomeAssistant, tmp_
     assert not (storage / f"{DOMAIN}.settings").exists()
 
 
-async def test_add_moments(hass: HomeAssistant, config_entry: MockConfigEntry) -> None:
-    """“Add moment”: from calendar events (words from the dictionary) or from moments."""
-    config_entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(
-        config_entry,
-        options={**DEFAULT_OPTIONS, CONF_TAGS: ["leaf"], CONF_KEYS: ["В пути"]},
+async def test_tasks_and_moments_from_older_version_are_removed(
+    hass: HomeAssistant, tmp_path
+) -> None:
+    """Tasks and moments (1.3) are removed: automations make plans now."""
+    hass.config.config_dir = str(tmp_path)
+    storage = tmp_path / ".storage"
+    storage.mkdir()
+    (storage / f"{DOMAIN}.tasks").write_text(
+        '{"version": 1, "key": "zaya_planner.tasks", "data": {}}'
     )
-    result = await hass.config_entries.subentries.async_init(
-        (config_entry.entry_id, "moment"), context={"source": SOURCE_USER}
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Zaya Planner",
+        data={},
+        options=dict(DEFAULT_OPTIONS),
+        version=1,
+        minor_version=3,
+        subentries_data=[
+            ConfigSubentryData(
+                data={"kind": "calendars", "name": "Leaf"},
+                subentry_type="moment",
+                title="Leaf",
+                unique_id=None,
+            )
+        ],
     )
-    assert result["type"] is FlowResultType.MENU
-    result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"next_step_id": "calendars"}
+    entry.add_to_hass(hass)
+    entities = er.async_get(hass)
+    entities.async_get_or_create(
+        "calendar", DOMAIN, f"{entry.entry_id}_schedule", config_entry=entry
     )
-    assert result["type"] is FlowResultType.FORM
-    moment = {
-        "name": " Leaf departure ",
-        "tags": ["leaf"],
-        "conditions": "Время",
-        "edge": "start",
-        "offset_key": "В пути",
-        "key_sign": "minus",
-        "offset": -5.0,
-        "which": "first_of_day",
-    }
-    result = await hass.config_entries.subentries.async_configure(result["flow_id"], moment)
-    assert result["errors"] == {"conditions": "unknown_words"}
-    result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {**moment, "conditions": "В пути"}
-    )
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Leaf departure"
-    subentry = next(iter(config_entry.subentries.values()))
-    assert subentry.data["kind"] == "calendars"
-    assert subentry.data["offset"] == -5
 
-    result = await hass.config_entries.subentries.async_init(
-        (config_entry.entry_id, "moment"), context={"source": SOURCE_USER}
-    )
-    result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"next_step_id": "moments"}
-    )
-    result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"],
-        {"name": "Wake-up", "sources": ["sensor.zaya_leaf_departure"], "offset": -60},
-    )
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert {s.title for s in config_entry.subentries.values()} == {"Leaf departure", "Wake-up"}
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.minor_version == 4
+    assert dict(entry.subentries) == {}
+    assert entities.async_get_entity_id("calendar", DOMAIN, f"{entry.entry_id}_schedule") is None
+    assert hass.states.get("calendar.zaya_planner_plans") is not None
+    assert not (storage / f"{DOMAIN}.tasks").exists()

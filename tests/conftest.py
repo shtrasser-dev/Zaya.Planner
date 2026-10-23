@@ -28,7 +28,12 @@ def frozen_now(freezer):
 def config_entry() -> MockConfigEntry:
     """Return a config entry with default options."""
     return MockConfigEntry(
-        domain=DOMAIN, title="Zaya Planner", data={}, options=dict(DEFAULT_OPTIONS)
+        domain=DOMAIN,
+        title="Zaya Planner",
+        data={},
+        options=dict(DEFAULT_OPTIONS),
+        version=1,
+        minor_version=4,
     )
 
 

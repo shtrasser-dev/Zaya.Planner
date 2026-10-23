@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Zaya Planner",
-        "description": "Add the planner of smart home tasks. Tasks are created with the zaya_planner.upsert action and shown on the “Schedule” calendar."
+        "description": "Add the planner. Automations and scripts make plans with zaya_planner.add_step and zaya_planner.set_plan; plans are shown on the “Plans” calendar."
       }
     },
     "abort": {
@@ -15,19 +15,21 @@
       "init": {
         "title": "Zaya Planner settings",
         "data": {
-          "lateness_hours": "Lateness limit",
-          "action_prefix": "Allowed actions",
-          "retention_days": "Keep finished tasks",
+          "lateness_hours": "Lateness of the first step",
+          "fix_minutes": "Time to fix",
+          "action_prefix": "Allowed step scripts",
+          "retention_days": "Keep finished plans",
           "notify_action": "Notifications",
           "calendars": "Calendars",
           "tags": "Tags",
           "keys": "Keys"
         },
         "data_description": {
-          "lateness_hours": "A task without its own `expires` is not run if it is later than this (for example after Home Assistant was off).",
-          "action_prefix": "Only scripts whose entity id starts with this prefix can be tasks, for example script.plan_",
-          "retention_days": "Finished tasks older than this are removed.",
-          "notify_action": "Action that sends notifications about failed tasks, for example notify.mobile_app_phone or a script with title and message fields. Empty: a notification in Home Assistant.",
+          "lateness_hours": "A plan whose first step cannot start this late (for example after Home Assistant was off) fails.",
+          "fix_minutes": "A plan freezes no sooner than this after it last changed: time to undo a mistake.",
+          "action_prefix": "Only scripts whose entity id starts with this prefix can be steps, for example script.step_ (planning modules are script.plan_).",
+          "retention_days": "Finished plans older than this are removed.",
+          "notify_action": "Action that sends notifications about failed plans and errors in events, for example notify.mobile_app_phone or a script with title and message fields. Empty: a notification in Home Assistant.",
           "calendars": "The calendars Zaya Planner reads. Other calendars are never opened, and nothing is written to these.",
           "tags": "Tags that may be written in event descriptions, without “#”: leaf, отвезти… A tag starts with a letter.",
           "keys": "Keys of “Key: value” lines in event descriptions, for example “В пути”. Lines with other keys are notes."
@@ -35,7 +37,7 @@
       }
     },
     "error": {
-      "invalid_prefix": "The prefix must start with “script.” and name a group of scripts, for example script.plan_",
+      "invalid_prefix": "The prefix must start with “script.” and name a group of scripts, for example script.step_",
       "invalid_action": "Write an action as domain.action, for example notify.mobile_app_phone",
       "invalid_tag": "A tag starts with a letter and has only letters, digits, “_” and “-”.",
       "invalid_key": "A key cannot have “:” or start with “#”."
@@ -43,19 +45,19 @@
   },
   "entity": {
     "calendar": {
-      "schedule": {
-        "name": "Schedule"
+      "plans": {
+        "name": "Plans"
       }
     },
     "sensor": {
-      "next_task": {
-        "name": "Next task"
+      "next_step": {
+        "name": "Next step"
       },
-      "errors": {
-        "name": "Errors"
+      "failed_plans": {
+        "name": "Failed plans"
       },
-      "tasks": {
-        "name": "Plan"
+      "plans": {
+        "name": "Plans"
       },
       "event_errors": {
         "name": "Errors in events"
@@ -63,71 +65,29 @@
     }
   },
   "selector": {
-    "status": {
+    "plan_status": {
       "options": {
-        "scheduled": "Scheduled",
+        "planned": "Planned",
+        "frozen": "Frozen",
         "running": "Running",
         "done": "Done",
-        "error": "Error (retrying)",
         "failed": "Failed",
-        "skipped": "Skipped",
         "cancelled": "Cancelled"
-      }
-    },
-    "weekday": {
-      "options": {
-        "mon": "Monday",
-        "tue": "Tuesday",
-        "wed": "Wednesday",
-        "thu": "Thursday",
-        "fri": "Friday",
-        "sat": "Saturday",
-        "sun": "Sunday"
-      }
-    },
-    "edge": {
-      "options": {
-        "start": "Start",
-        "end": "End"
-      }
-    },
-    "key_sign": {
-      "options": {
-        "minus": "subtracted",
-        "plus": "added"
-      }
-    },
-    "which": {
-      "options": {
-        "first_of_day": "The first of each day",
-        "every": "Every one"
       }
     }
   },
   "services": {
-    "upsert": {
-      "name": "Plan a task",
-      "description": "Plans a task: when and what to do. Changes the task with the same ID while its time has not come; a task that is already due is left to the executor. A task of a rule in the past is not created.",
+    "add_step": {
+      "name": "Add step",
+      "description": "Adds a step to the plan being made in this run. Call “Set plan” after the steps.",
       "fields": {
-        "id": {
-          "name": "ID",
-          "description": "Key of the task. A second call with the same ID changes the task instead of adding one."
+        "owner": {
+          "name": "Owner",
+          "description": "The automation or script making the plan, usually {{ this.entity_id }}."
         },
-        "title": {
-          "name": "Title",
-          "description": "For people: shown on the calendar and in the plan."
-        },
-        "due": {
-          "name": "At",
-          "description": "Date and time. A time without a time zone is local time."
-        },
-        "due_entity": {
-          "name": "At the time of",
-          "description": "Instead of a date: an entity with a time, e.g. Sun “Next sunset” or “Next sunrise”, a date-and-time helper, a timestamp sensor. Its value is taken now, when the task is planned."
-        },
-        "offset": {
-          "name": "Offset",
-          "description": "Minutes after (+) or before (−) that time."
+        "at": {
+          "name": "When",
+          "description": "When the step runs."
         },
         "devices": {
           "name": "Devices",
@@ -135,72 +95,83 @@
         },
         "state": {
           "name": "State",
-          "description": "on or off, for the devices."
+          "description": "on or off"
         },
         "action": {
           "name": "Script",
-          "description": "Instead of devices: a script with the allowed prefix that answers ok and reason."
+          "description": "Instead of devices: a step script that answers ok and reason."
         },
-        "params": {
-          "name": "Parameters",
-          "description": "Passed to the script as its data."
-        },
-        "expires": {
-          "name": "Expires",
-          "description": "Do not run after this time. “always”: run however late (for turning things off). Empty: the lateness limit from the settings."
-        },
-        "rule_id": {
-          "name": "Rule",
-          "description": "Rule that planned the task, usually the entity id of the automation (this.entity_id in its templates). Tasks of a rule are never planned in the past."
-        }
-      },
-      "sections": {
-        "when": {
-          "name": "When"
-        },
-        "what": {
-          "name": "What"
-        },
-        "more": {
-          "name": "More"
+        "data": {
+          "name": "Data",
+          "description": "Fields for the script."
         }
       }
     },
-    "remove": {
-      "name": "Cancel tasks",
-      "description": "Cancels the unfinished task with this id, or the rule's tasks that are not due yet.",
+    "set_plan": {
+      "name": "Set plan",
+      "description": "Makes the steps added in this run the owner's next plan, replacing the one there was. With no steps it cancels the next plan. A frozen or running plan is not changed.",
       "fields": {
-        "id": {
-          "name": "ID",
-          "description": "Cancel the unfinished task with this id."
+        "owner": {
+          "name": "Owner",
+          "description": "The automation or script making the plan, usually {{ this.entity_id }}."
         },
-        "rule_id": {
-          "name": "Rule",
-          "description": "Cancel the rule's tasks whose due time has not come."
+        "summary": {
+          "name": "Summary",
+          "description": "Name of the plan on the calendar."
+        },
+        "freeze_at": {
+          "name": "Freeze at",
+          "description": "Time of day: the plan freezes at the last such time before its first step."
+        },
+        "freeze_before": {
+          "name": "Freeze before",
+          "description": "Minutes before the first step. Neither: the plan freezes when its first step is due."
+        },
+        "on_failure": {
+          "name": "On failure",
+          "description": "Script run if the plan fails, with the fields plan, step, reason and done."
+        },
+        "steps": {
+          "name": "Steps",
+          "description": "Steps given as a list (YAML) instead of “Add step”."
+        },
+        "force": {
+          "name": "Force",
+          "description": "A change by a person: also replace a frozen plan."
         }
       }
     },
-    "list": {
-      "name": "List tasks",
-      "description": "Returns tasks, optionally filtered.",
+    "cancel_plan": {
+      "name": "Cancel plan",
+      "description": "Cancels the owner's next plan. Frozen and running plans stay unless forced.",
       "fields": {
-        "id": {
-          "name": "ID",
-          "description": "Only tasks with this id."
+        "owner": {
+          "name": "Owner",
+          "description": "The automation or script whose plan is cancelled."
         },
-        "rule_id": {
-          "name": "Rule",
-          "description": "Only tasks of this rule."
+        "force": {
+          "name": "Force",
+          "description": "A choice of a person: also cancel frozen and running plans."
+        }
+      }
+    },
+    "get_plans": {
+      "name": "Get plans",
+      "description": "Returns plans with their steps.",
+      "fields": {
+        "owner": {
+          "name": "Owner",
+          "description": "Only the plans of this owner."
         },
         "status": {
           "name": "Status",
-          "description": "Only tasks in these statuses."
+          "description": "Only plans in these statuses."
         }
       }
     },
     "ensure_state": {
       "name": "Turn on/off and confirm",
-      "description": "Turns devices on or off and waits until each one reports the new state. Answers ok and reason, so a task can use it directly as its action.",
+      "description": "Turns devices on or off and waits until each one reports the new state. Answers ok and reason.",
       "fields": {
         "entity_id": {
           "name": "Devices",
@@ -209,72 +180,6 @@
         "state": {
           "name": "State",
           "description": "on or off"
-        }
-      }
-    },
-    "plan_window": {
-      "name": "Plan a window",
-      "description": "Keeps devices on from a start to an end: the window that is going on now or the next one. Call it from an automation triggered by “Zaya Planner: time to plan”; calling it again with nothing changed changes nothing.",
-      "fields": {
-        "name": {
-          "name": "Name",
-          "description": "Name of the window, e.g. Floor heating. Tasks and the calendar use it; one name, one window."
-        },
-        "devices": {
-          "name": "Devices",
-          "description": "Turned on for the window and off after it; each one must confirm."
-        },
-        "start_time": {
-          "name": "Start: time",
-          "description": "A time of day (with the days below)."
-        },
-        "start_entity": {
-          "name": "Start: at the time of",
-          "description": "E.g. timestamp sensors of one or more wake-ups (the earliest counts), Sun “Next sunset”."
-        },
-        "start_offset": {
-          "name": "Start: offset",
-          "description": "Minutes after (+) or before (−) that time."
-        },
-        "start_before_end": {
-          "name": "Start: minutes before the end",
-          "description": "E.g. a charging time. With a sensor below this is used when it has no value."
-        },
-        "start_before_end_entity": {
-          "name": "Start: minutes before the end from",
-          "description": "A sensor with the minutes, e.g. the charging time."
-        },
-        "end_time": {
-          "name": "End: time",
-          "description": "A time of day; the first one after the start."
-        },
-        "end_entity": {
-          "name": "End: at the time of",
-          "description": "E.g. Sun “Next sunrise”, a timestamp sensor of a departure."
-        },
-        "end_offset": {
-          "name": "End: offset",
-          "description": "Minutes after (+) or before (−) that time."
-        },
-        "duration": {
-          "name": "End: minutes after the start",
-          "description": "Length of the window."
-        },
-        "duration_entity": {
-          "name": "End: minutes after the start from",
-          "description": "A sensor with the length."
-        },
-        "days": {
-          "name": "Days",
-          "description": "Days for the time of day (of the start, or of the end when the start is counted back from it)."
-        }
-      },
-      "sections": {
-        "start": {
-          "name": "Start"
-        },
-        "end": {
-          "name": "End"
         }
       }
     },
@@ -310,19 +215,22 @@
       "message": "Zaya Planner is not set up."
     },
     "action_not_allowed": {
-      "message": "Action {action} is not allowed: a task runs zaya_planner.ensure_state or a script starting with {prefix}."
-    },
-    "expires_before_due": {
-      "message": "“expires” is earlier than “due”: the task could never run."
+      "message": "{action} cannot be a step: a step runs zaya_planner.ensure_state or a script starting with {prefix}."
     },
     "state_required": {
       "message": "Choose the state (on or off) for the devices."
     },
-    "due_entity_no_time": {
-      "message": "{entity_id} has no time now."
+    "steps_not_in_order": {
+      "message": "The steps are not in time order."
     },
-    "window_sources": {
-      "message": "Give the start one way (a time, an entity's time, or minutes before the end) and the end one way (a time, an entity's time, or minutes after the start); not both as minutes from each other."
+    "step_in_past": {
+      "message": "The first step is in the past."
+    },
+    "plan_not_open": {
+      "message": "There is no such open plan."
+    },
+    "plan_started": {
+      "message": "The plan has started: it can be cancelled but not moved."
     },
     "not_a_chosen_calendar": {
       "message": "Zaya Planner does not read {calendars}: choose it in the integration settings."
@@ -337,92 +245,6 @@
   "device_automation": {
     "trigger_type": {
       "time_to_plan": "Time to plan"
-    }
-  },
-  "config_subentries": {
-    "moment": {
-      "initiate_flow": {
-        "user": "Add moment",
-        "reconfigure": "Change the moment"
-      },
-      "entry_type": "Moment",
-      "step": {
-        "user": {
-          "title": "What is the moment worked out from?",
-          "menu_options": {
-            "calendars": "From calendar events",
-            "moments": "The earliest of other moments"
-          }
-        },
-        "calendars": {
-          "title": "Moment from calendar events",
-          "description": "For example “Leaf: morning departure”: the first event of each day with #leaf, its start minus Travel.",
-          "data": {
-            "name": "Name",
-            "calendars": "Calendars",
-            "tags": "Tags",
-            "conditions": "Attributes",
-            "edge": "Edge of the event",
-            "offset_key": "Minus or plus the attribute",
-            "key_sign": "The attribute is",
-            "offset": "And minutes",
-            "which": "Which events",
-            "cancel_tags": "Cancellations"
-          },
-          "data_description": {
-            "calendars": "Some of the chosen calendars. Empty: all of them.",
-            "tags": "The event has all these tags.",
-            "conditions": "Optional, one per line: Key: value (the attribute has this value) or Key (the attribute is there).",
-            "offset_key": "A key whose value is a duration (00:40:00), e.g. Travel.",
-            "offset": "Plus after, minus before.",
-            "cancel_tags": "Events with any of these tags (Frost, Vacation) cancel what happens in their time in the same calendar."
-          }
-        },
-        "moments": {
-          "title": "The earliest of other moments",
-          "description": "For example “Dad: wake-up”: the earliest of “Leaf: morning departure − 60 min” and Dad's own wake-up.",
-          "data": {
-            "name": "Name",
-            "sources": "Moments",
-            "offset": "Plus minutes"
-          },
-          "data_description": {
-            "sources": "Timestamp sensors: moments of Zaya Planner or any others.",
-            "offset": "Plus after, minus before."
-          }
-        },
-        "reconfigure": {
-          "title": "Change the moment",
-          "data": {
-            "name": "Name",
-            "calendars": "Calendars",
-            "tags": "Tags",
-            "conditions": "Attributes",
-            "edge": "Edge of the event",
-            "offset_key": "Minus or plus the attribute",
-            "key_sign": "The attribute is",
-            "offset": "Plus minutes",
-            "which": "Which events",
-            "cancel_tags": "Cancellations",
-            "sources": "Moments"
-          },
-          "data_description": {
-            "calendars": "Some of the chosen calendars. Empty: all of them.",
-            "tags": "The event has all these tags.",
-            "conditions": "Optional, one per line: Key: value (the attribute has this value) or Key (the attribute is there).",
-            "offset_key": "A key whose value is a duration (00:40:00), e.g. Travel.",
-            "offset": "Plus after, minus before.",
-            "cancel_tags": "Events with any of these tags (Frost, Vacation) cancel what happens in their time in the same calendar.",
-            "sources": "Timestamp sensors: moments of Zaya Planner or any others."
-          }
-        }
-      },
-      "error": {
-        "unknown_words": "Some words are not in the dictionary (the integration settings)."
-      },
-      "abort": {
-        "reconfigure_successful": "The moment is changed."
-      }
     }
   }
 }

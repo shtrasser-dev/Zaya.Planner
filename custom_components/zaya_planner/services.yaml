@@ -1,101 +1,100 @@
-upsert:
+add_step:
   fields:
-    id:
+    owner:
       required: true
-      example: "floor_heating_on"
+      example: "{{ this.entity_id }}"
       selector:
         text:
-    title:
-      example: "Floor heating on"
+    at:
+      required: true
       selector:
-        text:
-    when:
-      collapsed: false
-      fields:
-        due:
-          selector:
-            datetime:
-        due_entity:
-          example: "sensor.sun_next_setting"
-          selector:
-            entity:
-              filter:
-                - domain: sensor
-                  device_class: timestamp
-                - domain: input_datetime
-        offset:
-          default: 0
-          selector:
-            number:
-              min: -1440
-              max: 1440
-              unit_of_measurement: min
-              mode: box
-    what:
-      collapsed: false
-      fields:
-        devices:
-          selector:
-            entity:
-              multiple: true
-              filter:
-                - domain: [switch, light, input_boolean, fan]
-        state:
-          selector:
-            select:
-              options:
-                - "on"
-                - "off"
-        action:
-          example: "script.plan_switch"
-          selector:
-            entity:
-              filter:
-                - domain: script
-        params:
-          example: '{"mode": "eco"}'
-          selector:
-            object:
-    more:
-      collapsed: true
-      fields:
-        expires:
-          example: "always"
-          selector:
-            text:
-        rule_id:
-          selector:
-            text:
+        datetime:
+    devices:
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: [switch, light, input_boolean, fan, climate, water_heater]
+    state:
+      selector:
+        select:
+          options:
+            - "on"
+            - "off"
+    action:
+      example: script.step_boiler_mode
+      selector:
+        entity:
+          filter:
+            domain: script
+    data:
+      example: '{"mode": "eco"}'
+      selector:
+        object:
 
-remove:
+set_plan:
   fields:
-    id:
+    owner:
+      required: true
+      example: "{{ this.entity_id }}"
       selector:
         text:
-    rule_id:
+    summary:
+      example: Leaf charging
       selector:
         text:
+    freeze_at:
+      example: "23:00"
+      selector:
+        time:
+    freeze_before:
+      selector:
+        number:
+          min: 0
+          max: 10080
+          unit_of_measurement: min
+          mode: box
+    on_failure:
+      selector:
+        entity:
+          filter:
+            domain: script
+    steps:
+      selector:
+        object:
+    force:
+      default: false
+      selector:
+        boolean:
 
-list:
+cancel_plan:
   fields:
-    id:
+    owner:
+      required: true
+      example: "{{ this.entity_id }}"
       selector:
         text:
-    rule_id:
+    force:
+      default: false
+      selector:
+        boolean:
+
+get_plans:
+  fields:
+    owner:
       selector:
         text:
     status:
       selector:
         select:
           multiple: true
-          translation_key: status
+          translation_key: plan_status
           options:
-            - scheduled
+            - planned
+            - frozen
             - running
             - done
-            - error
             - failed
-            - skipped
             - cancelled
 
 ensure_state:
@@ -136,93 +135,3 @@ find_events:
       default: false
       selector:
         boolean:
-
-plan_window:
-  fields:
-    name:
-      required: true
-      example: Floor heating
-      selector:
-        text:
-    devices:
-      required: true
-      selector:
-        entity:
-          multiple: true
-          filter:
-            - domain: [switch, light, input_boolean, fan]
-    start:
-      collapsed: false
-      fields:
-        start_time:
-          selector:
-            time:
-        start_entity:
-          selector:
-            entity:
-              multiple: true
-              filter:
-                - domain: sensor
-                  device_class: timestamp
-                - domain: input_datetime
-        start_offset:
-          default: 0
-          selector:
-            number:
-              min: -1440
-              max: 1440
-              unit_of_measurement: min
-              mode: box
-        start_before_end:
-          selector:
-            number:
-              min: 1
-              max: 1440
-              unit_of_measurement: min
-              mode: box
-        start_before_end_entity:
-          selector:
-            entity:
-              filter:
-                - domain: [sensor, input_number, number]
-    end:
-      collapsed: false
-      fields:
-        end_time:
-          selector:
-            time:
-        end_entity:
-          selector:
-            entity:
-              multiple: true
-              filter:
-                - domain: sensor
-                  device_class: timestamp
-                - domain: input_datetime
-        end_offset:
-          default: 0
-          selector:
-            number:
-              min: -1440
-              max: 1440
-              unit_of_measurement: min
-              mode: box
-        duration:
-          selector:
-            number:
-              min: 1
-              max: 1440
-              unit_of_measurement: min
-              mode: box
-        duration_entity:
-          selector:
-            entity:
-              filter:
-                - domain: [sensor, input_number, number]
-    days:
-      default: [mon, tue, wed, thu, fri, sat, sun]
-      selector:
-        select:
-          multiple: true
-          translation_key: weekday
-          options: [mon, tue, wed, thu, fri, sat, sun]

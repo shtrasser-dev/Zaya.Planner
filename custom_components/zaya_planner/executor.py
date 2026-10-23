@@ -1,8 +1,9 @@
-"""Executor: runs tasks when they are due, retries and reports.
+"""Executor: freezes plans, runs their steps in turn, retries, reports failures.
 
-A task's script is called with the task's params as data and must answer
-`{ok: true}` or `{ok: false, reason: "..."}` (stop with response_variable).
-Failed attempts are retried with pauses until the task expires.
+A step's action is called with the step's data and must answer `{ok: true}` or
+`{ok: false, reason: "..."}` (zaya_planner.ensure_state does). A step that is
+not done in time fails its plan: the remaining steps are not run and the plan's
+failure instructions (a script) run instead.
 """
 
 from __future__ import annotations
@@ -17,58 +18,61 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
 
+from .calls import async_call_script, async_notify, async_run_instructions
 from .const import (
     CONF_LATENESS_HOURS,
     DEFAULT_LATENESS_HOURS,
     DOMAIN,
     ERROR_NOTIFY_AFTER,
-    EVENT_TASK_DONE,
-    EVENT_TASK_FAILED,
-    EXPIRES_ALWAYS,
+    EVENT_PLAN_DONE,
+    EVENT_PLAN_FAILED,
     RETRY_DELAYS,
-    SIGNAL_TASKS_UPDATED,
-    TaskStatus,
+    SIGNAL_PLANS_UPDATED,
+    PlanStatus,
+    StepStatus,
 )
-from .calls import async_call_script, async_notify
+from .display import step_info, step_text
 from .messages import message
-from .models import Task
-from .store import TaskManager
+from .models import Plan, Step
+from .store import PlanManager, local_text
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class Executor:
-    """Run due tasks; one attempt per task at a time."""
+    """Move plans through their statuses; one attempt per plan at a time."""
 
-    def __init__(
-        self, hass: HomeAssistant, entry: ConfigEntry, manager: TaskManager
-    ) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, manager: PlanManager) -> None:
         """Initialize the executor."""
         self.hass = hass
         self.entry = entry
         self.manager = manager
         self._unsub_timer: CALLBACK_TYPE | None = None
-        # uids of tasks with an attempt in progress
+        # uids of plans with an attempt in progress
         self._running: set[str] = set()
+
+    @property
+    def _lateness(self) -> timedelta:
+        hours = self.entry.options.get(CONF_LATENESS_HOURS, DEFAULT_LATENESS_HOURS)
+        return timedelta(hours=hours)
 
     @callback
     def async_start(self, _hass: HomeAssistant | None = None) -> None:
         """Start once Home Assistant has started (scripts are loaded by then)."""
         now = dt_util.utcnow()
         interrupted = False
-        for task in self.manager.tasks:
-            if task.status == TaskStatus.RUNNING:
+        for plan in self.manager.find(statuses=[PlanStatus.RUNNING]):
+            step = plan.current_step()
+            if step is not None and step.status == StepStatus.RUNNING:
                 # Home Assistant stopped during the attempt: try again
-                task.status = TaskStatus.ERROR
-                task.last_error = self._text("reason_restart")
-                task.error_since = task.error_since or now
-                task.next_attempt = now
+                step.status = StepStatus.RETRYING
+                step.last_error = self._text("reason_restart")
+                step.error_since = step.error_since or now
+                step.next_attempt = now
                 interrupted = True
         self.entry.async_on_unload(
             async_dispatcher_connect(
-                self.hass,
-                f"{SIGNAL_TASKS_UPDATED}_{self.entry.entry_id}",
-                self._async_schedule,
+                self.hass, f"{SIGNAL_PLANS_UPDATED}_{self.entry.entry_id}", self._async_schedule
             )
         )
         self.entry.async_on_unload(self._async_cancel_timer)
@@ -82,33 +86,40 @@ class Executor:
             self._unsub_timer()
             self._unsub_timer = None
 
+    def _wake(self, plan: Plan) -> datetime | None:
+        """Return when something next happens to a plan."""
+        if plan.status == PlanStatus.PLANNED:
+            moment = plan.freeze_moment or plan.start
+            return moment if moment < plan.start else plan.start
+        if plan.status == PlanStatus.FROZEN:
+            return plan.start
+        if plan.status == PlanStatus.RUNNING and (step := plan.current_step()) is not None:
+            return step.next_attempt or step.at
+        return None
+
     @callback
     def _async_schedule(self) -> None:
-        """Start attempts that are due and wake up for the next one."""
+        """Do what is due and wake up for what comes next."""
         self._async_cancel_timer()
         now = dt_util.utcnow()
-        due: list[Task] = []
+        due: list[Plan] = []
         wake: datetime | None = None
-        for task in self.manager.tasks:
-            if not task.is_open or task.next_attempt is None:
+        for plan in self.manager.plans:
+            if not plan.is_open or plan.uid in self._running:
                 continue
-            if task.uid in self._running:
+            moment = self._wake(plan)
+            if moment is None:
                 continue
-            if task.next_attempt <= now:
-                due.append(task)
-            elif wake is None or task.next_attempt < wake:
-                wake = task.next_attempt
+            if moment <= now:
+                due.append(plan)
+            elif wake is None or moment < wake:
+                wake = moment
         if wake is not None:
-            self._unsub_timer = async_track_point_in_utc_time(
-                self.hass, self._async_on_timer, wake
-            )
-        for task in due:
-            self._running.add(task.uid)
+            self._unsub_timer = async_track_point_in_utc_time(self.hass, self._async_on_timer, wake)
+        for plan in due:
+            self._running.add(plan.uid)
             self.entry.async_create_task(
-                self.hass,
-                self._async_run(task.uid),
-                f"{DOMAIN} {task.id}",
-                eager_start=False,
+                self.hass, self._async_advance(plan.uid), f"{DOMAIN} {plan.owner}", eager_start=False
             )
 
     @callback
@@ -116,100 +127,108 @@ class Executor:
         self._unsub_timer = None
         self._async_schedule()
 
-    async def _async_run(self, uid: str) -> None:
-        """Make one attempt of a task."""
+    async def _async_advance(self, uid: str) -> None:
+        """Freeze, start or make one attempt of a plan."""
         try:
-            task = self.manager.get(uid)
-            if task is None or not task.is_open:
+            plan = self.manager.get(uid)
+            if plan is None or not plan.is_open:
                 return
-            deadline = self._deadline(task)
-            if deadline is not None and dt_util.utcnow() > deadline:
-                await self._async_close_late(task)
+            now = dt_util.utcnow()
+            if plan.status == PlanStatus.PLANNED and now < plan.start:
+                await self._async_freeze(plan)
                 return
-
-            task.status = TaskStatus.RUNNING
-            task.attempts += 1
-            task.updated_at = dt_util.utcnow()
-            await self.manager.async_save()
-
-            ok, reason, response = await async_call_script(
-                self.hass, task.action, dict(task.params)
-            )
-
-            if task.status != TaskStatus.RUNNING:
-                # Cancelled while the script was running: leave it cancelled
+            if plan.status in (PlanStatus.PLANNED, PlanStatus.FROZEN):
+                if now > plan.start + self._lateness:
+                    # The first step could not start in time (Home Assistant was off)
+                    await self._async_fail(
+                        plan, plan.steps[0], self._text("reason_late", due=local_text(plan.start))
+                    )
+                    return
+                plan.status = PlanStatus.RUNNING
+                for step in plan.steps:
+                    step.status = StepStatus.WAITING
+            step = plan.current_step()
+            if step is None:
+                await self._async_done(plan)
                 return
-            if ok:
-                await self._async_done(task, response)
-            else:
-                await self._async_error(task, reason, deadline)
+            await self._async_attempt(plan, step)
         finally:
             self._running.discard(uid)
             self._async_schedule()
 
-    def _deadline(self, task: Task) -> datetime | None:
-        """Return when the task is too late to run (None: never)."""
-        if task.expires == EXPIRES_ALWAYS:
-            return None
-        if isinstance(task.expires, datetime):
-            return task.expires
-        hours = self.entry.options.get(CONF_LATENESS_HOURS, DEFAULT_LATENESS_HOURS)
-        return task.due + timedelta(hours=hours)
+    async def _async_freeze(self, plan: Plan) -> None:
+        plan.status = PlanStatus.FROZEN
+        await self.manager.async_save()
+        self.manager.log(
+            self._text("plan_frozen", summary=plan.display_summary, start=local_text(plan.start))
+        )
 
-    async def _async_done(self, task: Task, response: Any) -> None:
-        now = dt_util.utcnow()
-        task.status = TaskStatus.DONE
-        task.result = response
-        task.last_error = None
-        task.error_since = None
-        task.notified = False
-        task.next_attempt = None
-        task.finished_at = now
-        task.updated_at = now
+    def _deadline(self, plan: Plan, step: Step) -> datetime:
+        """Return by when a step must be done: the next step's time, or the lateness limit."""
+        index = plan.steps.index(step)
+        if index + 1 < len(plan.steps):
+            return plan.steps[index + 1].at
+        return step.at + self._lateness
+
+    async def _async_attempt(self, plan: Plan, step: Step) -> None:
+        """Make one attempt of the current step."""
+        step.status = StepStatus.RUNNING
+        step.attempts += 1
+        plan.updated_at = dt_util.utcnow()
         await self.manager.async_save()
 
-        if task.attempts > 1:
-            text = self._text("done_retry", title=task.display_title, attempts=task.attempts)
-        else:
-            text = self._text("done", title=task.display_title)
-        self.manager.log(text)
-        self.hass.bus.async_fire(EVENT_TASK_DONE, self._event_data(task))
+        ok, reason, response = await async_call_script(self.hass, step.action, dict(step.data))
 
-    async def _async_error(
-        self, task: Task, reason: str, deadline: datetime | None
-    ) -> None:
+        if plan.status != PlanStatus.RUNNING or step.status != StepStatus.RUNNING:
+            # Cancelled while the action was running: leave it cancelled
+            return
         now = dt_util.utcnow()
-        if deadline is not None and now >= deadline:
-            task.last_error = reason
-            await self._async_close(task, TaskStatus.FAILED, reason)
+        if ok:
+            step.status = StepStatus.DONE
+            step.result = response
+            step.last_error = None
+            step.next_attempt = None
+            step.finished_at = now
+            if (following := plan.current_step()) is not None:
+                following.next_attempt = following.at
+                await self.manager.async_save()
+            else:
+                await self._async_done(plan)
+            return
+        await self._async_error(plan, step, reason, now)
+
+    async def _async_error(self, plan: Plan, step: Step, reason: str, now: datetime) -> None:
+        deadline = self._deadline(plan, step)
+        if now >= deadline:
+            await self._async_fail(plan, step, reason)
             return
 
-        first = task.error_since is None
-        changed = reason != task.last_error
-        task.status = TaskStatus.ERROR
-        task.last_error = reason
-        task.error_since = task.error_since or now
-        task.updated_at = now
+        first = step.error_since is None
+        changed = reason != step.last_error
+        step.status = StepStatus.RETRYING
+        step.last_error = reason
+        step.error_since = step.error_since or now
 
-        delay = RETRY_DELAYS[min(task.attempts, len(RETRY_DELAYS)) - 1]
+        delay = RETRY_DELAYS[min(step.attempts, len(RETRY_DELAYS)) - 1]
         next_attempt = now + delay
-        notify_at = task.error_since + ERROR_NOTIFY_AFTER
-        if not task.notified and now < notify_at < next_attempt:
+        notify_at = step.error_since + ERROR_NOTIFY_AFTER
+        if not step.notified and now < notify_at < next_attempt:
             # Try once more exactly when the error is due to be reported
             next_attempt = notify_at
-        if deadline is not None and next_attempt > deadline:
-            next_attempt = deadline
-        task.next_attempt = next_attempt
+        step.next_attempt = min(next_attempt, deadline)
 
-        notify = not task.notified and now >= notify_at
+        notify = not step.notified and now >= notify_at
         if notify:
-            task.notified = True
+            step.notified = True
         await self.manager.async_save()
 
-        next_text = f"{dt_util.as_local(next_attempt):%H:%M}"
+        what = step_text(self.hass, step)
+        next_text = f"{dt_util.as_local(step.next_attempt):%H:%M}"
         if first or changed:
             self.manager.log(
-                self._text("error", title=task.display_title, reason=reason, next=next_text)
+                self._text(
+                    "step_error", summary=plan.display_summary, step=what, reason=reason, next=next_text
+                )
             )
         if notify:
             await async_notify(
@@ -217,55 +236,65 @@ class Executor:
                 self.entry,
                 self._text("notify_title_error"),
                 self._text(
-                    "notify_error", title=task.display_title, reason=reason, next=next_text
+                    "notify_error", summary=plan.display_summary, step=what, reason=reason, next=next_text
                 ),
             )
 
-    async def _async_close_late(self, task: Task) -> None:
-        """Close a task that is past its deadline."""
-        if task.attempts == 0:
-            reason = self._text(
-                "reason_late", due=f"{dt_util.as_local(task.due):%d.%m %H:%M}"
-            )
-            await self._async_close(task, TaskStatus.SKIPPED, reason)
-        else:
-            await self._async_close(
-                task, TaskStatus.FAILED, task.last_error or self._text("reason_unknown")
-            )
-
-    async def _async_close(self, task: Task, status: TaskStatus, reason: str) -> None:
-        """Close the task as failed or skipped and report it."""
+    async def _async_done(self, plan: Plan) -> None:
         now = dt_util.utcnow()
-        task.status = status
-        task.last_error = reason
-        task.next_attempt = None
-        task.finished_at = now
-        task.updated_at = now
+        plan.status = PlanStatus.DONE
+        plan.finished_at = now
+        plan.updated_at = now
+        await self.manager.async_save()
+        self.manager.log(self._text("plan_done", summary=plan.display_summary))
+        self.hass.bus.async_fire(EVENT_PLAN_DONE, self._event_data(plan))
+
+    async def _async_fail(self, plan: Plan, step: Step, reason: str) -> None:
+        """The step was not done: the plan fails, its failure instructions run."""
+        now = dt_util.utcnow()
+        step.status = StepStatus.FAILED
+        step.last_error = reason
+        step.finished_at = now
+        step.next_attempt = None
+        for other in plan.steps:
+            if not other.is_finished:
+                other.status = StepStatus.CANCELLED
+                other.next_attempt = None
+        plan.status = PlanStatus.FAILED
+        plan.reason = reason
+        plan.finished_at = now
+        plan.updated_at = now
         await self.manager.async_save()
 
-        kind = "skipped" if status == TaskStatus.SKIPPED else "failed"
-        self.manager.log(self._text(kind, title=task.display_title, reason=reason))
-        self.hass.bus.async_fire(
-            EVENT_TASK_FAILED,
-            {**self._event_data(task), "status": str(status), "reason": reason},
+        what = step_text(self.hass, step)
+        self.manager.log(
+            self._text("plan_failed", summary=plan.display_summary, step=what, reason=reason)
         )
+        self.hass.bus.async_fire(
+            EVENT_PLAN_FAILED, {**self._event_data(plan), "step": step_info(self.hass, step), "reason": reason}
+        )
+        if plan.on_failure:
+            variables = {
+                "plan": {"summary": plan.display_summary, "owner": plan.owner, "uid": plan.uid},
+                "step": step_info(self.hass, step),
+                "reason": reason,
+                "done": [step_info(self.hass, s) for s in plan.steps if s.status == StepStatus.DONE],
+            }
+            ok, error = await async_run_instructions(self.hass, plan.on_failure, variables)
+            if ok:
+                return
+            self.manager.log(
+                self._text("instructions_failed", script=plan.on_failure, reason=error)
+            )
         await async_notify(
             self.hass,
             self.entry,
-            self._text(f"notify_title_{kind}"),
-            self._text("notify_closed", title=task.display_title, reason=reason),
+            self._text("notify_title_failed"),
+            self._text("notify_failed", summary=plan.display_summary, step=what, reason=reason),
         )
 
-    def _event_data(self, task: Task) -> dict[str, Any]:
-        return {
-            "id": task.id,
-            "uid": task.uid,
-            "title": task.display_title,
-            "action": task.action,
-            "rule_id": task.rule_id,
-            "attempts": task.attempts,
-            "result": task.result,
-        }
+    def _event_data(self, plan: Plan) -> dict[str, Any]:
+        return {"uid": plan.uid, "owner": plan.owner, "summary": plan.display_summary}
 
     def _text(self, key: str, **kwargs: object) -> str:
         return message(self.hass, key, **kwargs)

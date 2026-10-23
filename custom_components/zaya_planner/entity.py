@@ -10,19 +10,19 @@ from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 
-from .const import DOMAIN, SIGNAL_TASKS_UPDATED
-from .store import TaskManager
+from .const import DOMAIN, SIGNAL_PLANS_UPDATED
+from .store import PlanManager
 
 
 class ZayaPlannerEntity(Entity):
-    """An entity that shows the task list and updates when it changes."""
+    """An entity that shows the plans and updates when they change."""
 
     _attr_has_entity_name = True
     # Platform of the entity, used for a stable entity id
     _entity_platform: str
     _attr_should_poll = False
 
-    def __init__(self, entry: ConfigEntry, manager: TaskManager, key: str) -> None:
+    def __init__(self, entry: ConfigEntry, manager: PlanManager, key: str) -> None:
         """Initialize the entity."""
         self.entry = entry
         self.manager = manager
@@ -39,16 +39,16 @@ class ZayaPlannerEntity(Entity):
 
     @override
     async def async_added_to_hass(self) -> None:
-        """Follow changes of the task list."""
+        """Follow changes of the plans."""
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                f"{SIGNAL_TASKS_UPDATED}_{self._entry_id}",
-                self._async_tasks_updated,
+                f"{SIGNAL_PLANS_UPDATED}_{self._entry_id}",
+                self._async_plans_updated,
             )
         )
 
     @callback
-    def _async_tasks_updated(self) -> None:
+    def _async_plans_updated(self) -> None:
         self.async_write_ha_state()
 

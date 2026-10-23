@@ -1,39 +1,39 @@
-"""Calendar “Schedule”: one event per task."""
+"""Calendar “Plans”: one event per plan, from its first step to its last.
+
+A person may delete an event (the plan is cancelled, even a frozen or running
+one) or move it (all steps of a plan that has not started move with it).
+"""
 
 from __future__ import annotations
 
-from datetime import datetime
-import json
-from typing import override
+from datetime import date, datetime
+from typing import Any, override
 
-from homeassistant.components.calendar import CalendarEntity, CalendarEvent
+from homeassistant.components.calendar import (
+    CalendarEntity,
+    CalendarEntityFeature,
+    CalendarEvent,
+)
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import ZayaPlannerConfigEntry
-from .const import (
-    ATTR_ENTITY_ID,
-    ATTR_STATE,
-    BUILTIN_ACTIONS,
-    EVENT_DURATION,
-    TaskStatus,
-)
-from .description import build
+from .const import DOMAIN, EVENT_DURATION, PlanStatus
+from .display import plan_description
 from .entity import ZayaPlannerEntity
-from .messages import message
-from .models import Task
+from .models import Plan
+from .store import as_aware
 
 PARALLEL_UPDATES = 0
 
-# Shown before the title so the outcome is visible without opening the event
-STATUS_ICONS: dict[TaskStatus, str] = {
-    TaskStatus.RUNNING: "⏳",
-    TaskStatus.DONE: "✅",
-    TaskStatus.ERROR: "⚠️",
-    TaskStatus.FAILED: "❌",
-    TaskStatus.SKIPPED: "⏭️",
+# Shown before the summary so the state is visible without opening the event
+STATUS_ICONS: dict[PlanStatus, str] = {
+    PlanStatus.FROZEN: "❄️",
+    PlanStatus.RUNNING: "⏳",
+    PlanStatus.DONE: "✅",
+    PlanStatus.FAILED: "❌",
 }
 
 
@@ -42,90 +42,90 @@ async def async_setup_entry(
     entry: ZayaPlannerConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up the schedule."""
-    async_add_entities([ZayaPlannerCalendar(entry)], update_before_add=True)
+    """Set up the plans calendar."""
+    async_add_entities([PlansCalendar(entry)], update_before_add=True)
 
 
-def _event_end(task: Task) -> datetime:
-    end = task.due + EVENT_DURATION
-    if task.finished_at is not None and task.finished_at > end:
-        end = task.finished_at
-    return end
+def _event_end(plan: Plan) -> datetime:
+    return max(plan.end, plan.start + EVENT_DURATION)
 
 
-class ZayaPlannerCalendar(ZayaPlannerEntity, CalendarEntity):
-    """Tasks of the schedule, planned and recently finished.
+class PlansCalendar(ZayaPlannerEntity, CalendarEntity):
+    """Plans: planned, frozen, running and recently finished.
 
-    Cancelled tasks are not shown: a calendar does not return cancelled events.
+    Cancelled plans are not shown: a calendar does not return cancelled events.
     """
 
     _entity_platform = "calendar"
+    _attr_supported_features = (
+        CalendarEntityFeature.DELETE_EVENT | CalendarEntityFeature.UPDATE_EVENT
+    )
 
     def __init__(self, entry: ZayaPlannerConfigEntry) -> None:
         """Initialize the calendar."""
-        super().__init__(entry, entry.runtime_data.manager, "schedule")
+        super().__init__(entry, entry.runtime_data.manager, "plans")
 
     @property
     @override
     def event(self) -> CalendarEvent | None:
-        """Return the current or next open task."""
+        """Return the current or next open plan."""
         now = dt_util.utcnow()
-        for task in self.manager.tasks:
-            if task.is_open and _event_end(task) > now:
-                return self._event(task)
+        for plan in self.manager.plans:
+            if plan.is_open and _event_end(plan) > now:
+                return self._event(plan)
         return None
 
     @override
     async def async_get_events(
         self, hass: HomeAssistant, start_date: datetime, end_date: datetime
     ) -> list[CalendarEvent]:
-        """Return tasks between the given dates."""
+        """Return plans between the given dates."""
         return [
-            self._event(task)
-            for task in self.manager.tasks
-            if task.status != TaskStatus.CANCELLED
-            and task.due < end_date
-            and _event_end(task) > start_date
+            self._event(plan)
+            for plan in self.manager.plans
+            if plan.status != PlanStatus.CANCELLED
+            and plan.start < end_date
+            and _event_end(plan) > start_date
         ]
 
-    def _event(self, task: Task) -> CalendarEvent:
-        hass = self.hass
-        fields: list[tuple[str, object]] = [
-            (message(hass, "label_status"), message(hass, f"status_{task.status}"))
-        ]
-        if task.action in BUILTIN_ACTIONS and ATTR_ENTITY_ID in task.params:
-            # zaya_planner.ensure_state: the devices by name and the state
-            fields.append((message(hass, "label_devices"), self._names(task.params[ATTR_ENTITY_ID])))
-            state = task.params.get(ATTR_STATE)
-            fields.append(
-                (message(hass, "label_state"), message(hass, f"window_{state}") if state else None)
+    @override
+    async def async_delete_event(
+        self,
+        uid: str,
+        recurrence_id: str | None = None,
+        recurrence_range: str | None = None,
+    ) -> None:
+        """A person cancels a plan."""
+        if await self.manager.async_cancel_by_person(uid) is None:
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="plan_not_open")
+
+    @override
+    async def async_update_event(
+        self,
+        uid: str,
+        event: dict[str, Any],
+        recurrence_id: str | None = None,
+        recurrence_range: str | None = None,
+    ) -> None:
+        """A person moves a plan: all its steps move by as much as its start."""
+        plan = self.manager.get(uid)
+        start = event.get("dtstart")
+        if plan is None or not isinstance(start, (date, datetime)):
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="plan_not_open")
+        if not isinstance(start, datetime):
+            start = datetime.combine(start, plan.start.time())
+        delta = as_aware(start) - plan.start
+        if await self.manager.async_move_by_person(uid, delta) is None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="plan_started"
             )
-        else:
-            fields.append((message(hass, "label_action"), task.action))
-            if task.params:
-                fields.append(
-                    (
-                        message(hass, "label_params"),
-                        json.dumps(task.params, ensure_ascii=False, default=str),
-                    )
-                )
-        if task.attempts:
-            fields.append((message(hass, "label_attempts"), task.attempts))
-        fields.append((message(hass, "label_error"), task.last_error))
+
+    def _event(self, plan: Plan) -> CalendarEvent:
+        icon = STATUS_ICONS.get(plan.status)
         return CalendarEvent(
-            start=dt_util.as_local(task.due),
-            end=dt_util.as_local(_event_end(task)),
-            summary=f"{icon} {task.display_title}"
-            if (icon := STATUS_ICONS.get(task.status))
-            else task.display_title,
-            description=build(fields),
-            uid=task.uid,
+            start=dt_util.as_local(plan.start),
+            end=dt_util.as_local(_event_end(plan)),
+            summary=f"{icon} {plan.display_summary}" if icon else plan.display_summary,
+            description=plan_description(self.hass, plan),
+            uid=plan.uid,
         )
-
-    def _names(self, entity_ids: object) -> list[str]:
-        """Return the friendly names of entities, or their ids."""
-        return [
-            state.name if (state := self.hass.states.get(entity_id)) else entity_id
-            for entity_id in cv.ensure_list(entity_ids)
-        ]
-

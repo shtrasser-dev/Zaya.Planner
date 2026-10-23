@@ -9,13 +9,14 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import EVENT_TASK_DONE, EVENT_TASK_FAILED, EVENT_TIME_TO_PLAN, TIME_TO_PLAN_INTERVAL
+from .const import EVENT_PLAN_DONE, EVENT_PLAN_FAILED, EVENT_TIME_TO_PLAN, TIME_TO_PLAN_INTERVAL
 
 
 class TimeToPlan:
     """Fires “time to plan” when rules should plan again.
 
-    After Home Assistant starts, when automations are saved, when a task ends,
+    After Home Assistant starts, when automations are saved, when a plan ends,
+    when events of the chosen calendars change (see EventReader),
     and every quarter of an hour as a safety net.
     """
 
@@ -27,7 +28,7 @@ class TimeToPlan:
     @callback
     def async_start(self, _hass: HomeAssistant | None = None) -> None:
         """Listen for the reasons to plan again, and plan once now."""
-        for event_type in (EVENT_TASK_DONE, EVENT_TASK_FAILED, "automation_reloaded"):
+        for event_type in (EVENT_PLAN_DONE, EVENT_PLAN_FAILED, "automation_reloaded"):
             self.entry.async_on_unload(self.hass.bus.async_listen(event_type, self._async_on_event))
         self.entry.async_on_unload(
             async_track_time_interval(self.hass, self._async_on_interval, TIME_TO_PLAN_INTERVAL)

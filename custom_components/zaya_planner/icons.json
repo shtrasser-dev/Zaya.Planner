@@ -1,18 +1,18 @@
 {
   "entity": {
     "calendar": {
-      "schedule": {
+      "plans": {
         "default": "mdi:calendar-clock"
       }
     },
     "sensor": {
-      "next_task": {
+      "next_step": {
         "default": "mdi:clock-outline"
       },
-      "errors": {
+      "failed_plans": {
         "default": "mdi:alert-circle-outline"
       },
-      "tasks": {
+      "plans": {
         "default": "mdi:format-list-checks"
       },
       "event_errors": {
@@ -21,20 +21,20 @@
     }
   },
   "services": {
-    "upsert": {
-      "service": "mdi:calendar-plus"
+    "add_step": {
+      "service": "mdi:playlist-plus"
     },
-    "remove": {
+    "set_plan": {
+      "service": "mdi:calendar-check"
+    },
+    "cancel_plan": {
       "service": "mdi:calendar-remove"
     },
-    "list": {
+    "get_plans": {
       "service": "mdi:format-list-bulleted"
     },
     "ensure_state": {
       "service": "mdi:toggle-switch-outline"
-    },
-    "plan_window": {
-      "service": "mdi:clock-time-four-outline"
     },
     "find_events": {
       "service": "mdi:calendar-filter"

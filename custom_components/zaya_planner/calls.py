@@ -1,4 +1,4 @@
-"""Calling scripts (tasks and rule planners) and sending notifications."""
+"""Calling step actions and failure instructions, and sending notifications."""
 
 from __future__ import annotations
 
@@ -59,3 +59,21 @@ async def async_notify(
         )
     except HomeAssistantError as err:
         _LOGGER.warning("Could not send notification with %s: %s", action, err)
+
+
+async def async_run_instructions(
+    hass: HomeAssistant, script: str, variables: dict[str, Any]
+) -> tuple[bool, str]:
+    """Run a plan's failure instructions (a script) with variables; return (ok, error)."""
+    domain, _, name = script.partition(".")
+    if domain != "script" or not hass.services.has_service(domain, name):
+        return False, message(hass, "reason_not_found", action=script)
+    try:
+        async with asyncio.timeout(SCRIPT_TIMEOUT.total_seconds()):
+            await hass.services.async_call(domain, name, variables, blocking=True)
+    except TimeoutError:
+        return False, message(hass, "reason_timeout", seconds=int(SCRIPT_TIMEOUT.total_seconds()))
+    except Exception as err:  # noqa: BLE001 - a script may fail in any way
+        _LOGGER.exception("Failure instructions %s failed", script)
+        return False, str(err) or type(err).__name__
+    return True, ""

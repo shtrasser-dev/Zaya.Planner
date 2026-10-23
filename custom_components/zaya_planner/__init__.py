@@ -1,4 +1,4 @@
-"""Zaya Planner: plan and reliably run smart home tasks."""
+"""Zaya Planner: calendar tools, plans, and their reliable execution."""
 
 from __future__ import annotations
 
@@ -21,7 +21,9 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CLEANUP_INTERVAL,
+    CONF_FIX_MINUTES,
     CONF_RETENTION_DAYS,
+    DEFAULT_FIX_MINUTES,
     DEFAULT_RETENTION_DAYS,
     DOMAIN,
 )
@@ -29,7 +31,7 @@ from .events import EventReader
 from .executor import Executor
 from .planning import TimeToPlan
 from .services import async_setup_services
-from .store import TaskManager
+from .store import PlanManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,14 +40,14 @@ PLATFORMS: list[Platform] = [Platform.CALENDAR, Platform.SENSOR]
 CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
 
 # Entities of the integration (by key); others left by older versions are removed
-ENTITY_KEYS = ("schedule", "next_task", "errors", "tasks", "event_errors")
+ENTITY_KEYS = ("plans", "next_step", "failed_plans", "event_errors")
 
 
 @dataclass(slots=True)
 class ZayaPlannerData:
     """What a loaded Zaya Planner keeps."""
 
-    manager: TaskManager
+    manager: PlanManager
     executor: Executor
     events: EventReader
     time_to_plan: TimeToPlan
@@ -62,7 +64,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) -> bool:
     """Set up Zaya Planner from a config entry."""
-    manager = TaskManager(hass, entry.entry_id)
+    fix = timedelta(minutes=entry.options.get(CONF_FIX_MINUTES, DEFAULT_FIX_MINUTES))
+    manager = PlanManager(hass, entry.entry_id, fix)
     await manager.async_load()
     executor = Executor(hass, entry, manager)
     entry.runtime_data = ZayaPlannerData(
@@ -87,7 +90,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Once Home Assistant has started scripts, automations and calendars are
-    # loaded: run tasks, read the chosen calendars, tell rules to plan
+    # loaded: run plans, read the chosen calendars, tell rules to plan
     entry.async_on_unload(async_at_started(hass, executor.async_start))
     entry.async_on_unload(async_at_started(hass, entry.runtime_data.events.async_start))
     entry.async_on_unload(async_at_started(hass, entry.runtime_data.time_to_plan.async_start))
@@ -121,7 +124,30 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "People, cars, their calendars and the house plan were removed: "
             "use calendars of your choice and tags"
         )
+    if entry.version == 1 and entry.minor_version < 4:
+        await _async_remove_tasks_and_moments(hass, entry)
+        hass.config_entries.async_update_entry(entry, minor_version=4)
+        _LOGGER.info("Tasks and moments were removed: automations make plans now")
     return True
+
+
+def _async_remove_stale_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove entities of older versions: only those of ENTITY_KEYS are kept."""
+    entities = er.async_get(hass)
+    keep = {f"{entry.entry_id}_{key}" for key in ENTITY_KEYS}
+    for entity in er.async_entries_for_config_entry(entities, entry.entry_id):
+        if entity.unique_id not in keep:
+            entities.async_remove(entity.entity_id)
+
+
+async def _async_remove_tasks_and_moments(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """1.4: tasks became plans; moments are worked out by automations."""
+    for subentry_id, subentry in list(entry.subentries.items()):
+        if subentry.subentry_type == "moment":
+            hass.config_entries.async_remove_subentry(entry, subentry_id)
+    _async_remove_stale_entities(hass, entry)
+    tasks = Path(hass.config.path(".storage", f"{DOMAIN}.tasks"))
+    await hass.async_add_executor_job(lambda: tasks.unlink(missing_ok=True))
 
 
 async def _async_remove_household(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -138,11 +164,7 @@ async def _async_remove_household(hass: HomeAssistant, entry: ConfigEntry) -> No
         if (DOMAIN, entry.entry_id) not in device.identifiers:
             devices.async_remove_device(device.id)
     # The house plan calendar, its sensors and other entities of older versions
-    entities = er.async_get(hass)
-    keep = {f"{entry.entry_id}_{key}" for key in ENTITY_KEYS}
-    for entity in er.async_entries_for_config_entry(entities, entry.entry_id):
-        if entity.unique_id not in keep:
-            entities.async_remove(entity.entity_id)
+    _async_remove_stale_entities(hass, entry)
 
     # Saved settings of people and cars, person calendar files
     storage = Path(hass.config.path(".storage"))
