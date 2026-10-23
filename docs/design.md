@@ -1,258 +1,298 @@
-# Zaya Planner: calendars, tags and moments
+# Zaya Planner: calendars, plans and planning modules
 
-Design of the next part of Zaya Planner, agreed before writing code.
-What exists today (task store, executor, `upsert`, `plan_window`, `ensure_state`) is described
-in the [README](../README.md); this document is about what is built on top of it.
+Design agreed before writing code (2026-10-23). What exists today is described in the
+[README](../README.md); this document says where it is going.
 
 ## 1. Goal
 
-The family plans its days in calendars; the house follows.
+Home Assistant automations work as always. Zaya Planner gives them three sets of tools:
 
-- Events are written in ordinary Home Assistant calendars, one per person or any other way.
-- Tags and attributes in an event's description say what matters for the house:
-  `#leaf #отвезти`, `В пути: 00:40:00`.
-- **Moments** are worked out from the events: “the Leaf leaves for school”, “Dad gets up”.
-  Each moment is a timestamp sensor.
-- Rules (automations with `plan_window` / `upsert`) plan the house's work from moments:
-  the Leaf is charged before it leaves, the floor is warm by the time Dad gets up.
-- A change in a calendar (a lesson moved, an appointment added) changes the moments, and the
-  rules plan again.
+1. **Calendar tools**: tags and attributes in event descriptions, finding events, errors in events.
+2. **Plan tools**: put a plan (steps at given times) on the schedule, change it, cancel it.
+3. **Execution**: run the steps of a plan when they are due, reliably, and report what happened.
+
+What should happen and when is decided by automations and scripts, with standard tools:
+triggers, conditions, templates, script fields. Zaya Planner knows no words and no rules of its own.
 
 Principles:
 
-- **Nothing foreign to Home Assistant.** Calendars, the event dialog, recurrence and
-  automations are the standard ones. Zaya Planner never writes to the chosen calendars.
-- **No words in the code.** The integration does not know what a car, a trip or a wake-up is.
-  The user's own **dictionary** (tags and keys, in any language) and the user's moments give
-  the words their meaning.
-- **Settings in one place**: the integration page — its options (calendars, dictionary) and
-  its moments.
-- Mistakes are shown, never silently ignored.
+- **Nothing foreign to Home Assistant.** Calendars, the event dialog, automations, scripts and
+  templates are the standard ones. Zaya Planner never writes to the chosen calendars.
+- **Nothing is created by itself.** Calendars, plans and modules are made by the user (or by the
+  user's automations). The integration's own entities are fixed: one calendar and a few sensors.
+- **What you saw in the evening happens at night.** A plan can be frozen: after that no automation
+  can change or cancel it.
+- **Mistakes are shown**, never silently ignored.
 
-### 1.1 How we got here (2026-10-22)
+### 1.1 How we got here
 
-1. Calendars of our own with trip fields (iCalendar `X-` properties) worked, but the fields could
-   not be seen or edited in the standard event dialog; a card and forms would have been needed.
-2. `Key: value` lines with keys fixed in the code (`Car`, `Trip`, `Travel`) made the code decide
-   the words and hard-wired people, cars, trips and wake-ups.
-3. Now: tags and keys are the user's dictionary; their meaning is set in moments.
+1. Calendars of our own with trip fields: the fields could not be edited in the standard dialog.
+2. Fixed keys in descriptions (`Car`, `Trip`): the code decided the words.
+3. Moments (sensors worked out from events by a form): the form was too complex and still could
+   not do simple things (“5 minutes earlier if it snowed at night”).
+4. Now: automations and scripts compute times with templates; Zaya Planner finds events and
+   keeps and runs plans.
 
-## 2. Example: an ordinary weekday
+## 2. Example: charging the Leaf
 
-Masha's calendar (a Local Calendar “Masha”), Monday to Friday:
+Masha's calendar (a Local Calendar), weekdays:
 
 ```
-School                               08:00–13:45, weekly Mon–Fri
+Математика                          07:00–07:35, weekly Mon–Fri
 ───────────── description ─────────────
 #leaf #отвезти
-В пути: 00:40:00
-Take the sports kit
+Время в пути: 40:00
 ```
 
-Dad's calendar has “Wake-up” at 8:00 on weekends with `#подъём`.
+**Planning module** (a script with fields, made in the visual script editor):
 
-Moments (on the integration page):
+```yaml
+script:
+  plan_leaf_charging:
+    alias: Планирование зарядки Leaf
+    fields:
+      departure: { selector: { datetime: {} } }
+      charge_minutes: { default: 90, selector: { number: { min: 0, max: 600 } } }
+    sequence:
+      - variables:
+          off_at: "{{ (departure | as_datetime) - timedelta(minutes=30) }}"
+          on_at: "{{ off_at - timedelta(minutes=charge_minutes) }}"
+      - action: zaya_planner.add_step
+        data: { owner: "{{ this.entity_id }}", at: "{{ on_at }}",
+                devices: [switch.leaf_charger], state: "on" }
+      - action: zaya_planner.add_step
+        data: { owner: "{{ this.entity_id }}", at: "{{ off_at }}",
+                devices: [switch.leaf_charger], state: "off" }
+      - action: zaya_planner.set_plan
+        data: { owner: "{{ this.entity_id }}", summary: Зарядка Leaf, freeze_at: "23:00" }
+```
 
-| Moment | Worked out as |
-|---|---|
-| Leaf: morning departure | the first event of the day with `#leaf #отвезти` in Masha's and Dad's calendars: start − `В пути` |
-| Dad: wake-up | the earliest of: Leaf: morning departure − 60 min; an event with `#подъём` in Dad's calendar |
+**Automation** (visual editor): trigger “Zaya Planner: time to plan”; find the first `#leaf` event;
+if there is one, call the module with the departure; if not, cancel the module's plan.
 
-Rules: charge the Leaf for 90 min, ending 30 min before “Leaf: morning departure”;
-floor heating −20/+20 min around “Dad: wake-up”.
+```yaml
+actions:
+  - action: zaya_planner.find_events
+    data: { filter: "#leaf", first_of_day: true }
+    response_variable: found
+  - if: "{{ found.events | count > 0 }}"
+    then:
+      - action: script.plan_leaf_charging
+        data:
+          departure: >
+            {{ (found.events[0].start | as_datetime)
+               - (found.events[0].attributes['Время в пути'] | as_timedelta) }}
+    else:
+      - action: zaya_planner.cancel_plan
+        data: { owner: script.plan_leaf_charging }
+```
 
-On Monday: departure 7:20, Dad's wake-up 6:20, charging 5:20–6:50, floor 6:00–6:40.
-If school starts at 9:00 this Monday (the event moved with “only this event”), everything moves.
+The plan “Зарядка Leaf: 04:50 on → 06:20 off” is on the “Plans” calendar in the evening; at 23:00
+it is frozen (❄️). If at 02:00 a mistake makes the automation cancel it, nothing changes, and the
+logbook says so. In the morning the car is charged.
 
-## 3. Concepts
+## 3. Calendars
 
-### 3.1 Options: calendars and dictionary
+### 3.1 Options
 
-The integration's options (Settings → Devices & services → Zaya Planner → Configure):
-
-| Option | Example | Meaning |
-|---|---|---|
-| Calendars | Masha, Dad, Mum | The calendars Zaya Planner reads; other calendars are never opened |
-| Tags | leaf, chery, отвезти, забрать, подъём, отмена | Tags that may be written in events |
-| Keys | В пути | Keys of attributes that may be written in events |
-
-The existing options (lateness, script prefix, retention, notifications) stay on the same form.
-
-Any calendar can be chosen; the usual choice is a Local Calendar per person. A calendar with old
-events can be chosen too: only events with tags and keys from the dictionary mean anything.
+The integration's options hold the **calendars** Zaya Planner reads (any Home Assistant
+calendars; others are never opened) and the user's **dictionary**: **tags** and **keys**, in any
+language.
 
 ### 3.2 Event description
 
-- **Tags**: `#word` anywhere in the description, several in a line: `#leaf #отвезти`.
-  A tag starts with a letter; letters, digits, `_` and `-` follow.
-- **Attributes**: a line `Key: value`, where the key is in the dictionary.
-- Everything else is notes: lines without `:`, and lines whose key is not in the dictionary
-  (“Address: …”, “Room: 12”).
-
-Tags and keys are compared without letter case, “ё” as “е”, spaces around `:` ignored.
-When a key is repeated, the first line counts. Values are text, kept as written.
-
-**Durations** are written in the Home Assistant format, the one the template filter
-`as_timedelta` reads: `00:40:00` (40 minutes), `01:00:00` (an hour), `1:10:00`, or ISO 8601
-`PT40M`. Zaya Planner reads them with the same Home Assistant function, so a value means the same
-in a moment and in a template. No checks of our own: `40` is 40 seconds and `1:00` is one
-minute, exactly as in Home Assistant.
+- `#word` anywhere is a **tag** (if it is in the dictionary);
+- a line `Key: value` is an **attribute** (if its key is in the dictionary);
+- everything else is notes. Words are compared without letter case, “ё” as “е”.
+- Values are text. Durations are written as Home Assistant writes them (`00:40:00`, `40:00`,
+  `PT40M`) and read in templates with `as_timedelta`. No checks of our own.
 
 ### 3.3 Filters
 
-Moments and the action `find_events` pick events with a **filter** written the same way:
-
-| Filter line | Means |
-|---|---|
-| `#leaf` | the tag is there |
-| `В пути: 00:40:00` | the attribute has this value (text, compared as written) |
-| `В пути` | the attribute is there, any value |
-
-All lines of a filter must hold. In the moment form tags and keys are chosen from the
-dictionary, so a filter cannot have a typo.
+`#tag` (the tag is there), `Key: value` (the attribute has this value), `Key` (the attribute is
+there); all lines must hold.
 
 ### 3.4 Errors in events
 
-The sensor **“Errors in events”** lists what could not be understood in the chosen calendars:
+The sensor “Errors in events” lists, for the next 8 days of the chosen calendars: tags not in the
+dictionary, dictionary keys with no value, timed events longer than a day, chosen calendars that
+are not found. A mistake repeated in a series is one error; a new error is notified.
 
-- a tag not in the dictionary: “School (Masha, Mon 26.10): unknown tag #lief”;
-- a dictionary key with no value: “School (Masha, Mon 26.10): ‘В пути’ is empty”;
-- a timed event longer than 24 hours (almost always a wrong date in the event dialog).
+### 3.5 Finding events
 
-It also lists the problems moments find (3.5): an event that matches a moment's filter but lacks
-the attribute the moment takes, or has one that is not a duration (“сорок”, “1 ч”). A typo in a
-key (`Впути: 00:40:00`) shows up this way: the event matches, the attribute is missing.
+`zaya_planner.find_events`: filter, calendars (some of the chosen; empty: all), period (now and
+8 days by default), “first of each day”. Answers the events with their tags and attributes as text.
 
-A new error sends a notification (the same notification setting as failed tasks).
-Renaming a tag or a key in the dictionary does not change the events: the old word shows up as
-errors until the events are fixed.
+### 3.6 Time to plan
 
-### 3.5 Moments
+The device trigger “Zaya Planner: time to plan” fires after Home Assistant starts, when automations
+are saved, **when an event of a chosen calendar changes**, when a plan ends, and every 15 minutes.
+Automations may add triggers of their own (a snow sensor changed).
 
-A moment is a timestamp sensor `sensor.zaya_<name>` made on the integration page with the button
-“Add moment” (a config subentry), and changed or deleted there. There are two kinds.
+## 4. Plans
 
-**From calendars**
+### 4.1 What a plan is
 
-| Field | Example |
-|---|---|
-| Name | Leaf: morning departure |
-| Calendars | Masha, Dad (from the chosen ones; none = all) |
-| Filter | `#leaf #отвезти` |
-| Edge | start / end of the event |
-| Offset | − `В пути` (a key from the dictionary, its value a duration, 3.2) and/or ± minutes |
-| Which | the first of each day / every one |
-| Cancellations | tags of cancelling events, e.g. `#отмена` (optional) |
+A **plan** is a sequence of **steps** run as one whole: “on at 04:50, off at 06:20”. A step is a
+time (`at`) and what to do: `devices` + `state` (`on`/`off`, run by the built-in
+`zaya_planner.ensure_state`), or `action` (a script allowed in the options) + `data`.
 
-The sensor shows the next moment (with “the first of each day”: the first moment of the next day
-that has one). Its attributes are the event's title, calendar, tags and attributes.
+Every plan has an **owner**: the automation or script that made it (`owner: "{{ this.entity_id }}"`).
+An owner thinks one sequence ahead: it has at most **one next plan**, which it may change, plus the
+plans that are already frozen or running.
 
-Cancellations are events in the same calendar with any of the cancellation tags (“Frost”,
-“Vacation”, “No first two lessons”), all-day or timed, one day or many:
+### 4.2 Statuses
 
-- an event entirely inside a cancellation does not count;
-- an edge inside a cancellation moves out of it: a start to the cancellation's end, an end to its
-  start (the first lessons are cancelled: the departure moves later);
-- deleting the cancellation brings everything back.
-
-**From other moments**
-
-| Field | Example |
-|---|---|
-| Name | Dad: wake-up |
-| Moments | Dad: wake-up for the departure, Dad's own wake-up (any timestamp sensors) |
-| Plus minutes | 0 |
-
-The earliest of the moments plus one offset. A source that needs an offset of its own is a
-moment of its own: “Dad: wake-up for the departure” is a moment from calendars, the start of the
-first `#leaf` event minus `В пути` minus 60 minutes. So “wake-up = departure − getting ready”
-and “the earliest of several wake-ups” are made from moments, not hard-wired.
-
-Moments are recalculated when a chosen calendar changes, when the options or a moment change,
-every few minutes and after a restart. A change of any moment fires “time to plan”.
-
-### 3.6 Rules
-
-Rules stay ordinary automations, made with the visual editor: the trigger **“Zaya Planner:
-time to plan”** (it fires after a start, when automations are saved, when a task ends, when a
-moment changes and every 15 minutes), any conditions, and one action:
-
-- **`plan_window`**: devices on from a start to an end. Each end is a time of day (with days),
-  the time of an entity + offset (moments, the sun; the earliest of several), or minutes counted
-  from the other end. Examples: floor heating −20/+20 min around “Dad: wake-up”; the Leaf charged
-  until 30 min before “Leaf: morning departure”; lights from sunset + 30 to sunrise − 30.
-- **`upsert`** for a single moment.
-
-Rules plan tasks ahead, so the “Schedule” calendar shows them and the executor runs them reliably.
-Planning again with nothing changed changes nothing (`unchanged`), so rules may run often.
-
-### 3.7 Action `find_events`
-
-`zaya_planner.find_events`: calendars (chosen ones; none = all), a filter, a period, and
-optionally “the first of each day”. Answers the events with their tags and attributes as text;
-templates convert them with standard tools:
-
-```yaml
-- action: zaya_planner.find_events
-  data:
-    filter: "#leaf"
-    first_of_day: true
-  response_variable: found
-- variables:
-    travel_minutes: >
-      {{ (found.events[0].attributes['В пути'] | as_timedelta).total_seconds() / 60 }}
+```
+planned ──(freeze time)──▶ frozen ──(first step due)──▶ running ──▶ done / done_with_errors
+   │                                                       │
+   └──(cancel_plan, set_plan without steps)──▶ cancelled   └──(first step not done in time)──▶ failed
 ```
 
-Moment sensors carry the same tags and attributes (3.5). No functions of our own are added to
-templates: the more standard tools, the better.
+| Plan | Meaning |
+|---|---|
+| `planned` | The owner may change or cancel it |
+| `frozen` | Nobody but a person may change or cancel it |
+| `running` | Its first step is due; the other steps wait for their turn |
+| `done` | Every step done |
+| `done_with_errors` | Some step after the first was not done; the others were run |
+| `failed` | The first step was not done in time: the rest is not run |
+| `cancelled` | Cancelled before it ran |
 
-## 4. What changes in the code
+| Step | Meaning |
+|---|---|
+| `planned` | Not run yet (the plan has not started) |
+| `waiting` | The plan is running; the step waits for its turn |
+| `running` | Being run |
+| `retrying` | Failed, will be tried again |
+| `done` | Done |
+| `failed` | Not done (retries ran out, or the next step became due) |
+| `cancelled` | The plan was cancelled |
 
-Stays: task store, executor, `upsert`, `ensure_state`, `plan_window`, the “time to plan”
-trigger, the “Schedule” calendar with descriptions built as `Key: value` lines, the generic part
-of `description.py` (`attributes`, `build`, `matches`, `find`, `first_of_day`).
-Our own reading of durations (`travel_minutes` with “мин”, “ч”) goes: durations are read by
-Home Assistant's `parse_duration`, the same as `as_timedelta`.
+### 4.3 Making a plan
 
-Goes:
+- **`zaya_planner.add_step`** (owner, `at`, `devices` + `state` or `action` + `data`): adds a step
+  to the owner's **draft**. Each step has its own form in the visual editor; steps may be added in
+  conditions and loops.
+- **`zaya_planner.set_plan`** (owner, `summary`, freezing, optionally `steps` as a list for YAML):
+  turns the draft into the owner's next plan, replacing the one there was. With no steps it cancels
+  the next plan.
+- A draft belongs to **one run** (the Home Assistant context of the automation run, shared by the
+  scripts it calls). A run that stopped half way leaves nothing behind; the next run starts afresh.
+- **`zaya_planner.cancel_plan`** (owner): cancels the owner's next plan. Frozen and running plans
+  stay, unless `force: true` (a person's choice, see 4.6).
+- **`zaya_planner.get_plans`** (owner, statuses): the plans with their steps.
 
-- people and cars: options “People”, car entries, person and car devices with their settings
-  entities, `.storage/zaya_planner.settings`;
-- our own person calendars (`.ics` files, `X-ZAYA-*`), the actions `add_event`,
-  `set_event_details`, `get_events`, the `ical` requirement and the `person` dependency;
-- the hard-wired house plan: departures, wake-ups, the “House plan” calendar, the anchor sensors
-  `sensor.zaya_<person>_*`, `sensor.zaya_<car>_first_departure`, `sensor.zaya_planner_first_wake_up`;
-- the Android alarm (may come back later);
-- fixed keys (`KEY_NAMES`, `parse_details`, `build_details`, `details.py`).
+`set_plan` answers `result`:
 
-The cancellation rules of `plan.py` move into moments.
-On upgrade the car entries and the saved person settings are removed; nothing is carried over
-(only the test Home Assistant has them).
+| Result | When | Logbook |
+|---|---|---|
+| `created`, `updated`, `cancelled` | as said | yes |
+| `unchanged` | the same plan is there already | no |
+| `overlaps` | the plan starts before the owner's last frozen or running plan ends | only if its steps differ from that plan (the same steps: “already planned”) |
+| `frozen` | the steps belong to a frozen plan and differ from it | yes: a conflict |
+| error | the steps are not in time order, or the first is in the past | — (the automation shows it) |
 
-## 5. Steps
+Rules: steps must be in time order; the next plan must start after the owner's last frozen or
+running plan ends. So “lights from sunset to sunrise” needs no checks in the automation: while
+tonight's plan runs, planning tonight again is answered `overlaps` quietly.
 
-1. ✅ Task store, executor, rules with `plan_window` (see README).
-2. ✅ First version of people, cars, own calendars and house plan (replaced by steps 4–6).
-3. ✅ `Key: value` lines: parse / build / find.
-4. ✅ **Dictionary and calendars**: options “Calendars”, “Tags”, “Keys”; tags and attributes read
-   from the chosen calendars; “Errors in events”; `find_events`.
-5. ✅ **Moments**: subentries “from calendars” (with cancellations) and “from other moments”;
-   sensors; “time to plan” on a change; moment problems in “Errors in events”.
-6. ✅ **Clean-up** (done before step 5): people, cars, own calendars, house plan, alarm and fixed keys removed;
-   README updated.
-7. **Moving the real house over**: floor heating → lights → Leaf, the old YAML planner
-   running in parallel until the new one has proved itself.
+### 4.4 Freezing
 
-Each step ends tested (automated tests + the test Home Assistant).
+A plan is frozen at its **freeze time**, set by `set_plan`:
 
-## 6. Open questions
+- `freeze_at`: a time of day, meaning the last such time before the first step
+  (“23:00” for a 04:50 step: 23:00 the evening before);
+- or `freeze_before`: minutes before the first step.
 
-None at the moment.
+But never earlier than **“Time to fix”** (an option, 10 minutes by default) after the plan last
+changed: a mistake at 01:00 can still be undone by 01:10. A plan without a freeze time is frozen
+when its first step is due. A plan made after its freeze time is frozen “Time to fix” later.
 
-## 7. Later
+### 4.5 Conflicts
 
-- Android alarm for a moment (set in the evening, a warning if the moment moves).
-- A calendar of moments (what the house worked out and why), if the sensors are not enough.
+An attempt of an automation to change or cancel a frozen plan changes nothing, is written to the
+**logbook** (“Зарядка Leaf: frozen at 23:00; script.plan_leaf_charging wanted to cancel it at 02:00”)
+and marked in the plan's attributes. No notification.
+
+### 4.6 A person's changes
+
+- In the **“Plans” calendar** (the integration's calendar): deleting a plan's event cancels the plan
+  (Home Assistant asks to confirm); moving it moves all its steps. This works for frozen plans too.
+- In scripts and actions: `cancel_plan` / `set_plan` with `force: true`.
+
+## 5. Execution
+
+- The first step has the **lateness limit** (an option): not done in time (e.g. Home Assistant was
+  off) → the plan **failed**, the other steps are not run, a notification is sent.
+- Once a plan runs, its other steps are run **however late**: “off” always happens.
+- A step that is still retrying when the next one is due becomes `failed`, and the next one runs.
+- A step after the first that fails does not stop the plan: the others are run, the plan is
+  `done_with_errors`, a notification is sent. *(Proposed; to be confirmed.)*
+- Steps answer `{ok, reason}` as tasks do today (`ensure_state` or a step script); retries after
+  1, 1, 2, 5 minutes, then every 5.
+- Events `zaya_planner_plan_done` and `zaya_planner_plan_failed`; a plan that ends fires
+  “time to plan”.
+- Plans are written to disk at once; after a restart running plans carry on.
+
+## 6. Planning modules
+
+A **planning module** is an ordinary script with fields: “plan the Leaf charging for this
+departure”. It works out the steps (with templates) and makes the plan with `add_step` and
+`set_plan`. Automations call it from the visual editor, where its fields are a form; it can also
+be run by hand from the script page, and may return an answer.
+
+- The module is the plan's owner (`this.entity_id` inside the script): one module, one plan ahead,
+  whoever calls it. A module shared by two cars uses `owner: "{{ this.entity_id }}:{{ car }}"`.
+- Naming (README): `script.plan_*` for planning modules, `script.step_*` for scripts used as steps.
+  The option “Allowed actions” defaults to `script.step_`.
+
+## 7. Names
+
+| What | Code | Russian |
+|---|---|---|
+| Actions | `add_step`, `set_plan`, `cancel_plan`, `get_plans`, `find_events`, `ensure_state` | Добавить шаг, Поставить план, Отменить план, Получить планы, Найти события, Включить или выключить и проверить |
+| Plan fields | `owner`, `summary`, `steps`, `freeze_at`, `freeze_before`, `force` | Владелец, Название, Шаги, Заморозить в, Заморозить за, Вручную |
+| Step fields | `at`, `devices`, `state`, `action`, `data` | Когда, Устройства, Состояние, Действие, Данные |
+| Calendar | `calendar.zaya_planner_plans` | Планы |
+| Sensors | `sensor.zaya_planner_next_step`, `sensor.zaya_planner_failed_plans`, `sensor.zaya_planner_plans`, `sensor.zaya_planner_event_errors` | Следующий шаг, Сбойные планы, Планы, Ошибки в событиях |
+| Events | `zaya_planner_plan_done`, `zaya_planner_plan_failed` | — |
+| Trigger | `time_to_plan` | Пора планировать |
+| Options | lateness, time to fix, retention, notifications, allowed actions, calendars, tags, keys | Допустимое опоздание первого шага, Время на исправление, Хранить завершённые планы, Уведомления, Разрешённые действия, Календари, Теги, Ключи |
+
+The word “task” goes; there are plans and steps. Status `skipped` goes (it is `failed`).
+
+## 8. What changes in the code
+
+- **Goes**: moments (subentries, sensors, `moments.py`); `upsert`, `remove`, `list`, `plan_window`
+  (and `window.py`); the task model.
+- **Stays**: calendars, dictionary, `find_events`, errors in events, `ensure_state`, the executor's
+  retries and notifications, “time to plan”.
+- **New**: plans and steps in the store; `add_step`, `set_plan`, `cancel_plan`, `get_plans`;
+  freezing, owners, next plans; the “Plans” calendar with delete and move; “time to plan” on
+  calendar changes.
+- On upgrade, tasks and moments are removed (only the test Home Assistant has them).
+
+## 9. Steps
+
+1. ✅ Task store, executor, `plan_window` (replaced by step 4).
+2. ✅ Calendars: chosen calendars, dictionary, errors in events, `find_events`.
+3. ✅ People, cars, own calendars and house plan removed.
+4. **Plans**: model, store, executor, freezing, actions, “Plans” calendar, sensors; moments
+   removed; “time to plan” on calendar changes.
+5. **Modules on the test Home Assistant**: Leaf charging and yard lights, as in section 2; README
+   with these examples.
+6. **Moving the real house over**: floor heating → lights → Leaf, the old YAML planner running in
+   parallel until the new one has proved itself.
+
+## 10. Open questions
+
+- A failed step after the first: run the others and mark `done_with_errors` (proposed in 5)?
+
+## 11. Later
+
+- “Finish now” for a running plan (run its remaining steps at once).
+- Android alarm for a plan or a time.
 - Travel time from maps with traffic (Waze free / 2GIS paid; Yandex too expensive).
-- One-way export to Google Calendar (via the Google Calendar API).
-- iPhone: reading the next alarm through Shortcuts; HA as an alarm with critical notifications.
+- One-way export of plans to Google Calendar.
+- iPhone: reading the next alarm through Shortcuts.
