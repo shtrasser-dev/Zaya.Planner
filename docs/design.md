@@ -297,7 +297,7 @@ The word “task” goes; there are plans and steps. Statuses `skipped` and `don
 1. ✅ Task store, executor, `plan_window` (replaced by step 4).
 2. ✅ Calendars: chosen calendars, dictionary, errors in events, `find_events`.
 3. ✅ People, cars, own calendars and house plan removed.
-4. **Plans**: model, store, executor, freezing, actions, “Plans” calendar, sensors; moments
+4. ✅ **Plans**: model, store, executor, freezing, actions, “Plans” calendar, sensors; moments
    removed; “time to plan” on calendar changes.
 5. **Modules on the test Home Assistant**: Leaf charging and yard lights, as in section 2; README
    with these examples.
