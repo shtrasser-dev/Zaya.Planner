@@ -51,7 +51,7 @@ Travel: 40:00
 ```
 
 A **planning module**: an ordinary script with fields (Settings → Automations & scenes → Scripts),
-made in the visual editor. It works out the steps and makes the plan:
+made in the visual editor. It makes the plan with three actions; the templates only pass values:
 
 ```yaml
 script:
@@ -60,20 +60,24 @@ script:
     fields:
       departure: { selector: { datetime: {} } }
       charge_minutes: { default: 90, selector: { number: { min: 0, max: 600 } } }
+      margin: { default: 30, selector: { number: { min: 0, max: 180 } } }
     sequence:
-      - variables:
-          off_at: "{{ (departure | as_datetime) - timedelta(minutes=30) }}"
-          on_at: "{{ off_at - timedelta(minutes=charge_minutes) }}"
-      - action: zaya_planner.add_step
-        data: { owner: "{{ this.entity_id }}", at: "{{ on_at }}",
+      - action: zaya_planner.add_step          # on: charge + margin minutes before leaving
+        data: { owner: "{{ this.entity_id }}", at: "{{ departure }}",
+                before: "{{ (margin | default(30)) + (charge_minutes | default(90)) }}",
                 devices: [switch.leaf_charger], state: "on" }
-      - action: zaya_planner.add_step
-        data: { owner: "{{ this.entity_id }}", at: "{{ off_at }}",
+      - action: zaya_planner.add_step          # off: margin minutes before leaving
+        data: { owner: "{{ this.entity_id }}", at: "{{ departure }}",
+                before: "{{ margin | default(30) }}",
                 devices: [switch.leaf_charger], state: "off" }
       - action: zaya_planner.set_plan
         data: { owner: "{{ this.entity_id }}", summary: Leaf charging,
                 freeze_at: "23:00", on_failure: script.leaf_charging_failed }
 ```
+
+Field defaults of a script apply in the form only: when an automation leaves a field out, it is
+undefined, hence `| default(...)`. Called without a departure, the module adds no steps and
+`set_plan` cancels its next plan; a plan whose first step is already past is not made (`past`).
 
 An **automation** finds the departure and calls the module (in the visual editor the module's
 fields are a form):
@@ -87,18 +91,10 @@ triggers:
     type: time_to_plan
 actions:
   - action: zaya_planner.find_events
-    data: { filter: "#leaf", first_of_day: true }
+    data: { filter: "#leaf", first_of_day: true, only_future: true, subtract: Travel }
     response_variable: found
-  - if: "{{ found.events | count > 0 }}"
-    then:
-      - action: script.plan_leaf_charging
-        data:
-          departure: >
-            {{ (found.events[0].start | as_datetime)
-               - (found.events[0].attributes['Travel'] | as_timedelta) }}
-    else:
-      - action: zaya_planner.cancel_plan
-        data: { owner: script.plan_leaf_charging }
+  - action: script.plan_leaf_charging
+    data: { departure: "{{ (found.events | first | default({})).at | default('') }}" }
 ```
 
 In the evening the plan “Leaf charging 04:50–06:20” is on the **Plans** calendar; at 23:00 it is
@@ -134,7 +130,11 @@ this value), `Key` (the attribute is there); empty: all events. `calendars`: som
 ones (empty: all). `start`, `end`: the period (now and 8 days by default). `first_of_day`: only
 the first matching event of each day.
 
-Response: `{events: [{calendar, summary, start, end, all_day, tags, attributes, description}]}`.
+`subtract`: a key whose value is a duration (`Travel: 40:00`): the event's `at` is its start
+minus it (none if the event has no such duration). `only_future`: only events whose `at` has
+not come yet.
+
+Response: `{events: [{calendar, summary, at, start, end, all_day, tags, attributes, description}]}`.
 Words not in the dictionary and calendars not chosen are refused.
 
 ## Plans
@@ -157,12 +157,15 @@ plan**, which it may change, plus plans that are already frozen or running.
 
 ### Making a plan
 
-- **`zaya_planner.add_step`** (`owner`, `at`, `devices` + `state` or `action` + `data`): adds a
-  step to the plan being made **in this run**. Each step has its own form in the visual editor;
-  steps may be added in conditions and loops, also by scripts the automation calls.
+- **`zaya_planner.add_step`** (`owner`, `at`, `before` / `after` minutes, `devices` + `state` or
+  `action` + `data`): adds a step to the plan being made **in this run**. Each step has its own
+  form in the visual editor; steps may be added in conditions and loops, also by scripts the
+  automation calls. A step without `at` is left out.
 - **`zaya_planner.set_plan`** (`owner`, `summary`, `freeze_at` or `freeze_before`, `on_failure`,
-  optionally `steps` as a list for YAML, `force`): makes the steps of this run the owner's next
-  plan, replacing the one there was. **With no steps it cancels the next plan.**
+  `display`, optionally `steps` as a list for YAML, `force`): makes the steps of this run the
+  owner's next plan, replacing the one there was. **With no steps it cancels the next plan.**
+  `display`: on the calendar as one event from the first step to the last (`span`), or a short
+  event per step (`steps`, e.g. lights from sunset to sunrise).
 - **`zaya_planner.cancel_plan`** (`owner`, `force`): cancels the owner's next plan.
 - **`zaya_planner.get_plans`** (`owner`, `status`): the plans with their steps.
 
@@ -174,8 +177,9 @@ plan**, which it may change, plus plans that are already frozen or running.
 | `unchanged` | the same plan is there already (rules may plan as often as they like) |
 | `overlaps` | the plan starts before the owner's frozen or running plan ends; quiet if it is that same plan |
 | `frozen` | the plan would change a frozen plan: nothing changes, the logbook says so |
+| `past` | the first step is in the past: nothing changes |
 
-Steps must be in time order and the first one in the future.
+Steps must be in time order.
 
 ### Freezing
 
