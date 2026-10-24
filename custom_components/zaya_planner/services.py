@@ -70,6 +70,7 @@ from .description import Filter
 from .display import plan_info
 from .ensure import async_ensure_state
 from .models import Freeze, Step
+from .owners import async_track_owners, owner_of
 from .store import as_aware
 
 DRAFTS = f"{DOMAIN}_drafts"
@@ -96,12 +97,12 @@ def _step_schema(fields: dict[Any, Any]) -> Any:
     )
 
 
-ADD_STEP_SCHEMA = _step_schema({probatio.Required(ATTR_OWNER): cv.string, **STEP_FIELDS})
+ADD_STEP_SCHEMA = _step_schema({probatio.Optional(ATTR_OWNER): cv.string, **STEP_FIELDS})
 
 SET_PLAN_SCHEMA = probatio.All(
     probatio.Schema(
         {
-            probatio.Required(ATTR_OWNER): cv.string,
+            probatio.Optional(ATTR_OWNER): cv.string,
             probatio.Optional(ATTR_SUMMARY, default=""): cv.string,
             probatio.Optional(ATTR_FREEZE_AT): cv.time,
             probatio.Optional(ATTR_FREEZE_BEFORE): probatio.All(
@@ -120,7 +121,7 @@ SET_PLAN_SCHEMA = probatio.All(
 
 CANCEL_PLAN_SCHEMA = probatio.Schema(
     {
-        probatio.Required(ATTR_OWNER): cv.string,
+        probatio.Optional(ATTR_OWNER): cv.string,
         probatio.Optional(ATTR_FORCE, default=False): cv.boolean,
     }
 )
@@ -192,6 +193,14 @@ def _step(hass: HomeAssistant, data: dict[str, Any]) -> Step | None:
     return Step(at=at, action=action, data=step_data)
 
 
+def _owner(call: ServiceCall) -> str:
+    """The owner given, or the automation or script that started this run."""
+    owner = call.data.get(ATTR_OWNER) or owner_of(call.hass, call.context)
+    if not owner:
+        raise _error("owner_unknown")
+    return owner
+
+
 def _drafts(hass: HomeAssistant) -> dict[tuple[str, str], tuple[datetime, list[Step]]]:
     """Steps added in a run, by (owner, run), waiting for set_plan."""
     drafts = hass.data.setdefault(DRAFTS, {})
@@ -204,7 +213,7 @@ def _drafts(hass: HomeAssistant) -> dict[tuple[str, str], tuple[datetime, list[S
 async def _async_add_step(call: ServiceCall) -> None:
     if (step := _step(call.hass, dict(call.data))) is None:
         return
-    key = (call.data[ATTR_OWNER], call.context.id)
+    key = (_owner(call), call.context.id)
     created, steps = _drafts(call.hass).get(key, (dt_util.utcnow(), []))
     _drafts(call.hass)[key] = (created, [*steps, step])
 
@@ -212,7 +221,7 @@ async def _async_add_step(call: ServiceCall) -> None:
 async def _async_set_plan(call: ServiceCall) -> ServiceResponse:
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
-    owner = call.data[ATTR_OWNER]
+    owner = _owner(call)
     force = call.data[ATTR_FORCE]
     # The steps added in this run (also by scripts it called), then those given here
     _, steps = _drafts(hass).pop((owner, call.context.id), (None, []))
@@ -244,9 +253,7 @@ async def _async_set_plan(call: ServiceCall) -> ServiceResponse:
 async def _async_cancel_plan(call: ServiceCall) -> ServiceResponse:
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
-    cancelled, result = await manager.async_cancel(
-        call.data[ATTR_OWNER], force=call.data[ATTR_FORCE]
-    )
+    cancelled, result = await manager.async_cancel(_owner(call), force=call.data[ATTR_FORCE])
     return {"result": str(result), ATTR_PLANS: [plan_info(hass, plan) for plan in cancelled]}
 
 
@@ -301,6 +308,7 @@ async def _async_find_events(call: ServiceCall) -> ServiceResponse:
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
     """Register the actions of Zaya Planner."""
+    async_track_owners(hass)
     for name, handler, schema, response in (
         (SERVICE_ADD_STEP, _async_add_step, ADD_STEP_SCHEMA, SupportsResponse.NONE),
         (SERVICE_SET_PLAN, _async_set_plan, SET_PLAN_SCHEMA, SupportsResponse.OPTIONAL),

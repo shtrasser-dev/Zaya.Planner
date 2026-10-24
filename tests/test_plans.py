@@ -174,3 +174,29 @@ async def test_time_to_fix(
     # Neither: when the first step is due
     response = await set_plan(hass, NIGHT)
     assert response["plan"]["freeze"] == "2026-10-22T04:50:00+03:00"
+
+
+async def test_owner_is_who_started_the_run(
+    hass: HomeAssistant, setup_entry: MockConfigEntry
+) -> None:
+    """Without an owner, the plan belongs to the automation that started the run."""
+    context = Context()
+    hass.bus.async_fire("automation_triggered", {"entity_id": "automation.charging"}, context=context)
+    # A planning module called by it runs in the same context
+    hass.bus.async_fire("script_started", {"entity_id": "script.plan_charging"}, context=context)
+    await hass.async_block_till_done()
+    await hass.services.async_call(
+        "zaya_planner", "add_step", LIGHTS[0], blocking=True, context=context
+    )
+    response = await hass.services.async_call(
+        "zaya_planner", "set_plan", {"summary": "Lights"}, blocking=True,
+        return_response=True, context=context,
+    )
+    assert response["plan"]["owner"] == "automation.charging"
+
+    # Called by hand, outside any run: whose plan would it be?
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            "zaya_planner", "set_plan", {"steps": [LIGHTS[1]]}, blocking=True, return_response=True
+        )
+    assert err.value.translation_key == "owner_unknown"

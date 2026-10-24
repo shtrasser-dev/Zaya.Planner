@@ -1,7 +1,7 @@
 add_step:
   fields:
     owner:
-      required: true
+      advanced: true
       example: "{{ this.entity_id }}"
       selector:
         text:
@@ -48,7 +48,7 @@ add_step:
 set_plan:
   fields:
     owner:
-      required: true
+      advanced: true
       example: "{{ this.entity_id }}"
       selector:
         text:
@@ -91,7 +91,7 @@ set_plan:
 cancel_plan:
   fields:
     owner:
-      required: true
+      advanced: true
       example: "{{ this.entity_id }}"
       selector:
         text:

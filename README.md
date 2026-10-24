@@ -142,7 +142,9 @@ Words not in the dictionary and calendars not chosen are refused.
 A **plan** is a sequence of **steps** run as one whole. A step is a time (`at`) and what to do:
 `devices` + `state` (`on`/`off`), or `action` (an allowed step script) + `data`.
 
-Every plan has an **owner**: the automation or script that made it, usually
+Every plan has an **owner**. By default it is the automation (or the script run by itself) that
+started the run, so the field is hidden in the visual editor (shown in advanced mode). A
+planning module that should own its plan whoever calls it, also when you run it by hand, sets
 `owner: "{{ this.entity_id }}"`. An owner thinks one sequence ahead: it has at most **one next
 plan**, which it may change, plus plans that are already frozen or running.
 

@@ -89,7 +89,7 @@
       "fields": {
         "owner": {
           "name": "Owner",
-          "description": "The automation or script making the plan, usually the template with this.entity_id."
+          "description": "Usually not needed: the automation or script that started this run. Shown in advanced mode."
         },
         "at": {
           "name": "When",
@@ -127,7 +127,7 @@
       "fields": {
         "owner": {
           "name": "Owner",
-          "description": "The automation or script making the plan, usually the template with this.entity_id."
+          "description": "Usually not needed: the automation or script that started this run. Shown in advanced mode."
         },
         "summary": {
           "name": "Summary",
@@ -165,7 +165,7 @@
       "fields": {
         "owner": {
           "name": "Owner",
-          "description": "The automation or script whose plan is cancelled."
+          "description": "Usually not needed: the automation or script that started this run. Shown in advanced mode."
         },
         "force": {
           "name": "Force",
@@ -263,6 +263,9 @@
     },
     "end_before_start": {
       "message": "The end of the period is not after its start."
+    },
+    "owner_unknown": {
+      "message": "Whose plan is it? Called outside an automation or script, give the owner."
     }
   },
   "device_automation": {
