@@ -159,8 +159,8 @@ async def test_calendar_by_steps(
     hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now, switches, hass_ws_client
 ) -> None:
     """A plan shown by steps: a short event per step; deleting one cancels the plan."""
-    response = await set_plan(hass, LIGHTS, summary="Lights", display="steps")
-    uid = response["plan"]["uid"]
+    plan = await set_plan(hass, LIGHTS, summary="Lights", display="steps")
+    uid = plan["uid"]
     events = await hass.services.async_call(
         "calendar",
         "get_events",
@@ -205,8 +205,8 @@ async def test_calendar_and_sensors(
     hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now, switches, hass_ws_client
 ) -> None:
     """Plans on the calendar; a person deletes one and moves another."""
-    response = await set_plan(hass, LIGHTS, summary="Lights")
-    uid = response["plan"]["uid"]
+    plan = await set_plan(hass, LIGHTS, summary="Lights")
+    uid = plan["uid"]
 
     events = await hass.services.async_call(
         "calendar",

@@ -31,6 +31,8 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 
+from .common import next_plan
+
 # NOW (2026-10-21 12:00 UTC) is Wednesday 15:00 in Moscow
 ERRORS = "sensor.zaya_planner_event_errors"
 
@@ -248,16 +250,12 @@ async def test_step_at_an_event(
         blocking=True,
         context=context,
     )
-    response = await hass.services.async_call(
-        DOMAIN,
-        "set_plan",
-        {"owner": "automation.charging"},
-        blocking=True,
-        return_response=True,
-        context=context,
+    await hass.services.async_call(
+        DOMAIN, "set_plan", {"owner": "automation.charging"}, blocking=True, context=context
     )
+    plan = await next_plan(hass, "automation.charging")
     # School at 8:00 (Moscow), 40 minutes away, 30 minutes to spare
-    assert [s["at"] for s in response["plan"]["steps"]] == ["2026-10-22T06:50:00+03:00"]
+    assert [s["at"] for s in plan["steps"]] == ["2026-10-22T06:50:00+03:00"]
 
 
 @pytest.mark.parametrize(

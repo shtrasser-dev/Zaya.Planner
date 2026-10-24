@@ -176,15 +176,11 @@ For other plans, the building blocks:
 - **`zaya_planner.cancel_plan`** (`owner`, `force`): cancels the owner's next plan.
 - **`zaya_planner.get_plans`** (`owner`, `status`): the plans with their steps.
 
-`set_plan` answers `result`:
-
-| Result | When |
-|---|---|
-| `created`, `updated`, `cancelled` | as said |
-| `unchanged` | the same plan is there already (rules may plan as often as they like) |
-| `overlaps` | the plan starts before the owner's frozen or running plan ends; quiet if it is that same plan |
-| `frozen` | the plan would change a frozen plan: nothing changes, the logbook says so |
-| `past` | the first step is in the past: nothing changes |
+Planning actions answer nothing: what happened is on the Plans calendar and in the logbook.
+Planning again the same plan changes nothing and writes nothing (rules may plan as often as they
+like). A plan that starts before the owner's frozen or running plan ends is not made (quietly, if
+it is that same plan; otherwise the logbook says so once). A plan whose first step is in the past
+is not made.
 
 Steps must be in time order.
 

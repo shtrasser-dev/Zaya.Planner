@@ -183,15 +183,11 @@ planned ──(freeze_plans)──▶ frozen ──(first step due)──▶ run
   stay, unless `force: true` (a person's choice, see 4.6).
 - **`zaya_planner.get_plans`** (owner, statuses): the plans with their steps.
 
-`set_plan` answers `result`:
-
-| Result | When | Logbook |
-|---|---|---|
-| `created`, `updated`, `cancelled` | as said | yes |
-| `unchanged` | the same plan is there already | no |
-| `overlaps` | the plan starts before the owner's last frozen or running plan ends | only if its steps differ from that plan (the same steps: “already planned”) |
-| `frozen` | the steps belong to a frozen plan and differ from it | yes: a conflict |
-| error | the steps are not in time order, or the first is in the past | — (the automation shows it) |
+Planning actions answer nothing: what happened is on the Plans calendar and in the logbook.
+Planning again the same plan changes nothing and writes nothing (rules may plan as often as they
+like). A plan that starts before the owner's frozen or running plan ends is not made (quietly, if
+it is that same plan; otherwise the logbook says so once). A plan whose first step is in the past
+is not made.
 
 Rules: steps must be in time order; the next plan must start after the owner's last frozen or
 running plan ends. So “lights from sunset to sunrise” needs no checks in the automation: while

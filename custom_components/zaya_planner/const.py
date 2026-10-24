@@ -152,10 +152,6 @@ class PlanResult(StrEnum):
     OVERLAPS = "overlaps"
     # It would change or cancel a frozen plan
     FROZEN = "frozen"
-    # The first step is in the past: nothing is planned
-    PAST = "past"
-    # “Turn on for a while”: no window now (an end before its start, no time)
-    NO_WINDOW = "no_window"
 
 
 # Fired when rules should plan again (device trigger “time to plan”): Home

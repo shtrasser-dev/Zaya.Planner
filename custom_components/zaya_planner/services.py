@@ -73,7 +73,6 @@ from .const import (
     SERVICE_PLAN_WINDOW,
     SERVICE_SET_PLAN,
     SERVICE_UNFREEZE_PLANS,
-    PlanResult,
     PlanStatus,
 )
 from .description import Filter
@@ -332,7 +331,7 @@ async def _async_add_step(call: ServiceCall) -> None:
     _drafts(call.hass)[key] = (created, [*steps, step])
 
 
-async def _async_set_plan(call: ServiceCall) -> ServiceResponse:
+async def _async_set_plan(call: ServiceCall) -> None:
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
     owner = await _async_owner(call)
@@ -345,15 +344,15 @@ async def _async_set_plan(call: ServiceCall) -> ServiceResponse:
             steps.append(step)
 
     if not steps:
-        cancelled, result = await manager.async_cancel(owner, force=force)
-        return {"result": str(result), ATTR_PLANS: [plan_info(hass, plan) for plan in cancelled]}
+        await manager.async_cancel(owner, force=force)
+        return
 
     if any(later.at < earlier.at for earlier, later in zip(steps, steps[1:])):
         raise _error("steps_not_in_order")
     if steps[0].at <= dt_util.utcnow():
         # Too late for this plan (e.g. its first step was a while ago): nothing changes
-        return {"result": str(PlanResult.PAST), "plan": None}
-    plan, result = await manager.async_set_plan(
+        return
+    await manager.async_set_plan(
         owner,
         steps,
         summary=call.data[ATTR_SUMMARY],
@@ -362,10 +361,9 @@ async def _async_set_plan(call: ServiceCall) -> ServiceResponse:
         display=call.data[ATTR_DISPLAY],
         force=force,
     )
-    return {"result": str(result), "plan": plan_info(hass, plan) if plan else None}
 
 
-async def _async_plan_window(call: ServiceCall) -> ServiceResponse:
+async def _async_plan_window(call: ServiceCall) -> None:
     """Turn devices on at the start and off at the end: a plan of two steps."""
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
@@ -374,14 +372,14 @@ async def _async_plan_window(call: ServiceCall) -> ServiceResponse:
     start = _entity_time(hass, call.data[ATTR_START_ENTITY])
     end = _entity_time(hass, call.data[ATTR_END_ENTITY])
     if start is None or end is None:
-        return {"result": str(PlanResult.NO_WINDOW), "plan": None}
+        # An entity shows no time: no window
+        return
     start += timedelta(minutes=call.data[ATTR_START_OFFSET])
     end += timedelta(minutes=call.data[ATTR_END_OFFSET])
-    if end <= start:
-        # E.g. at night: the next sunset is tomorrow, the next sunrise this morning
-        return {"result": str(PlanResult.NO_WINDOW), "plan": None}
-    if start <= dt_util.utcnow():
-        return {"result": str(PlanResult.PAST), "plan": None}
+    if end <= start or start <= dt_util.utcnow():
+        # No window now, e.g. at night: the next sunset is tomorrow, the next sunrise
+        # this morning; or it has begun already
+        return
     devices = call.data[ATTR_DEVICES]
     action = f"{DOMAIN}.{SERVICE_ENSURE_STATE}"
     steps = [
@@ -392,35 +390,29 @@ async def _async_plan_window(call: ServiceCall) -> ServiceResponse:
         state.name if (state := hass.states.get(entity_id)) else entity_id
         for entity_id in devices
     )
-    plan, result = await manager.async_set_plan(
+    await manager.async_set_plan(
         owner, steps, summary=summary, tags=tags, display=call.data[ATTR_DISPLAY]
     )
-    return {"result": str(result), "plan": plan_info(hass, plan) if plan else None}
 
 
-async def _async_freeze_plans(call: ServiceCall) -> ServiceResponse:
+async def _async_freeze_plans(call: ServiceCall) -> None:
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
-    plans = await manager.async_freeze(
+    await manager.async_freeze(
         _tags(hass, call.data.get(ATTR_TAGS)), timedelta(hours=call.data[ATTR_WITHIN_HOURS])
     )
-    return {ATTR_PLANS: [plan_info(hass, plan) for plan in plans]}
 
 
-async def _async_unfreeze_plans(call: ServiceCall) -> ServiceResponse:
+async def _async_unfreeze_plans(call: ServiceCall) -> None:
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
-    plans = await manager.async_unfreeze(_tags(hass, call.data.get(ATTR_TAGS)))
-    return {ATTR_PLANS: [plan_info(hass, plan) for plan in plans]}
+    await manager.async_unfreeze(_tags(hass, call.data.get(ATTR_TAGS)))
 
 
-async def _async_cancel_plan(call: ServiceCall) -> ServiceResponse:
+async def _async_cancel_plan(call: ServiceCall) -> None:
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
-    cancelled, result = await manager.async_cancel(
-        await _async_owner(call), force=call.data[ATTR_FORCE]
-    )
-    return {"result": str(result), ATTR_PLANS: [plan_info(hass, plan) for plan in cancelled]}
+    await manager.async_cancel(await _async_owner(call), force=call.data[ATTR_FORCE])
 
 
 async def _async_get_plans(call: ServiceCall) -> ServiceResponse:
@@ -477,14 +469,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async_track_owners(hass)
     for name, handler, schema, response in (
         (SERVICE_ADD_STEP, _async_add_step, ADD_STEP_SCHEMA, SupportsResponse.NONE),
-        (SERVICE_SET_PLAN, _async_set_plan, SET_PLAN_SCHEMA, SupportsResponse.OPTIONAL),
-        (SERVICE_CANCEL_PLAN, _async_cancel_plan, CANCEL_PLAN_SCHEMA, SupportsResponse.OPTIONAL),
+        (SERVICE_SET_PLAN, _async_set_plan, SET_PLAN_SCHEMA, SupportsResponse.NONE),
+        (SERVICE_CANCEL_PLAN, _async_cancel_plan, CANCEL_PLAN_SCHEMA, SupportsResponse.NONE),
         (SERVICE_GET_PLANS, _async_get_plans, GET_PLANS_SCHEMA, SupportsResponse.ONLY),
         (SERVICE_ENSURE_STATE, _async_ensure_state, ENSURE_STATE_SCHEMA, SupportsResponse.OPTIONAL),
         (SERVICE_FIND_EVENTS, _async_find_events, FIND_EVENTS_SCHEMA, SupportsResponse.ONLY),
-        (SERVICE_PLAN_WINDOW, _async_plan_window, PLAN_WINDOW_SCHEMA, SupportsResponse.OPTIONAL),
-        (SERVICE_FREEZE_PLANS, _async_freeze_plans, FREEZE_PLANS_SCHEMA, SupportsResponse.OPTIONAL),
-        (SERVICE_UNFREEZE_PLANS, _async_unfreeze_plans, UNFREEZE_PLANS_SCHEMA, SupportsResponse.OPTIONAL),
+        (SERVICE_PLAN_WINDOW, _async_plan_window, PLAN_WINDOW_SCHEMA, SupportsResponse.NONE),
+        (SERVICE_FREEZE_PLANS, _async_freeze_plans, FREEZE_PLANS_SCHEMA, SupportsResponse.NONE),
+        (SERVICE_UNFREEZE_PLANS, _async_unfreeze_plans, UNFREEZE_PLANS_SCHEMA, SupportsResponse.NONE),
     ):
         hass.services.async_register(
             DOMAIN, name, handler, schema=schema, supports_response=response

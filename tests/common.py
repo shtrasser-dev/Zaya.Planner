@@ -1,4 +1,8 @@
-"""Helpers for Zaya Planner tests."""
+"""Helpers for Zaya Planner tests.
+
+Planning actions answer nothing: the helpers call them and return what is
+there afterwards (the plans of the owner), as an automation would see it.
+"""
 
 from __future__ import annotations
 
@@ -17,41 +21,11 @@ def step(at: str, entity_id: str = "switch.light", state: str = "on") -> dict[st
     return {"at": at, "devices": [entity_id], "state": state}
 
 
-async def set_plan(
-    hass: HomeAssistant, steps: list[dict[str, Any]], **data: Any
-) -> dict[str, Any]:
-    """Call zaya_planner.set_plan with the steps as a list."""
-    data.setdefault("owner", OWNER)
-    return await hass.services.async_call(
-        DOMAIN,
-        "set_plan",
-        {**data, "steps": steps},
-        blocking=True,
-        return_response=True,
-    )
-
-
-async def build_plan(
-    hass: HomeAssistant, steps: list[dict[str, Any]], **data: Any
-) -> dict[str, Any]:
-    """Make a plan as an automation does: add_step for each step, then set_plan (one run)."""
-    data.setdefault("owner", OWNER)
-    context = Context()
-    for item in steps:
-        await hass.services.async_call(
-            DOMAIN, "add_step", {"owner": data["owner"], **item}, blocking=True, context=context
-        )
-    return await hass.services.async_call(
-        DOMAIN, "set_plan", data, blocking=True, return_response=True, context=context
-    )
-
-
-async def cancel_plan(hass: HomeAssistant, **data: Any) -> dict[str, Any]:
-    """Call zaya_planner.cancel_plan."""
-    data.setdefault("owner", OWNER)
-    return await hass.services.async_call(
-        DOMAIN, "cancel_plan", data, blocking=True, return_response=True
-    )
+async def call(
+    hass: HomeAssistant, service: str, data: dict[str, Any], context: Context | None = None
+) -> None:
+    """Call a planning action of Zaya Planner."""
+    await hass.services.async_call(DOMAIN, service, data, blocking=True, context=context)
 
 
 async def get_plans(hass: HomeAssistant, **data: Any) -> list[dict[str, Any]]:
@@ -60,3 +34,40 @@ async def get_plans(hass: HomeAssistant, **data: Any) -> list[dict[str, Any]]:
         DOMAIN, "get_plans", data, blocking=True, return_response=True
     )
     return response["plans"]
+
+
+async def next_plan(hass: HomeAssistant, owner: str = OWNER) -> dict[str, Any] | None:
+    """Return the owner's plan that is not finished yet and starts last, if any."""
+    plans = [
+        plan
+        for plan in await get_plans(hass, owner=owner)
+        if plan["status"] in ("planned", "frozen", "running")
+    ]
+    return plans[-1] if plans else None
+
+
+async def set_plan(
+    hass: HomeAssistant, steps: list[dict[str, Any]], **data: Any
+) -> dict[str, Any] | None:
+    """Call zaya_planner.set_plan with the steps as a list; return the owner's plan."""
+    data.setdefault("owner", OWNER)
+    await call(hass, "set_plan", {**data, "steps": steps})
+    return await next_plan(hass, data["owner"])
+
+
+async def build_plan(
+    hass: HomeAssistant, steps: list[dict[str, Any]], **data: Any
+) -> dict[str, Any] | None:
+    """Make a plan as an automation does: add_step for each step, then set_plan (one run)."""
+    data.setdefault("owner", OWNER)
+    context = Context()
+    for item in steps:
+        await call(hass, "add_step", {"owner": data["owner"], **item}, context)
+    await call(hass, "set_plan", data, context)
+    return await next_plan(hass, data["owner"])
+
+
+async def cancel_plan(hass: HomeAssistant, **data: Any) -> None:
+    """Call zaya_planner.cancel_plan."""
+    data.setdefault("owner", OWNER)
+    await call(hass, "cancel_plan", data)
