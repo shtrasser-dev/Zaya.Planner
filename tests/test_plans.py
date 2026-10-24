@@ -243,6 +243,42 @@ async def test_plan_window(hass: HomeAssistant, setup_entry: MockConfigEntry) ->
     assert len(logbook) == 1
 
 
+async def test_plan_window_without_time(
+    hass: HomeAssistant, setup_entry: MockConfigEntry
+) -> None:
+    """A time entity shows no time (the event is gone): the next plan is cancelled, a frozen one stays."""
+    logbook = async_capture_events(hass, EVENT_LOGBOOK_ENTRY)
+    hass.states.async_set("sensor.departure", "2026-10-21T15:00:00+00:00")
+    window = {
+        "owner": "automation.charging",
+        "devices": ["switch.charger"],
+        "start_entity": "sensor.departure",
+        "start_offset": -120,
+        "end_entity": "sensor.departure",
+        "end_offset": -30,
+    }
+    await call(hass, "plan_window", window)
+    assert await next_plan(hass, "automation.charging") is not None
+
+    hass.states.async_set("sensor.departure", "unknown")
+    await call(hass, "plan_window", window)
+    assert await next_plan(hass, "automation.charging") is None
+    assert len(messages(logbook, "cancelled")) == 1
+
+    # Frozen: left to a person, and no conflict is written
+    hass.states.async_set("sensor.departure", "2026-10-21T15:00:00+00:00")
+    await call(hass, "plan_window", window)
+    await call(hass, "freeze_plans", {})
+    hass.states.async_set("sensor.departure", "unknown")
+    count = len(logbook)
+    await call(hass, "plan_window", window)
+    assert [p["status"] for p in await get_plans(hass, owner="automation.charging")] == [
+        "cancelled",
+        "frozen",
+    ]
+    assert len(logbook) == count
+
+
 async def test_owner_is_who_started_the_run(
     hass: HomeAssistant, setup_entry: MockConfigEntry
 ) -> None:

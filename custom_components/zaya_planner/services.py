@@ -372,7 +372,10 @@ async def _async_plan_window(call: ServiceCall) -> None:
     start = _entity_time(hass, call.data[ATTR_START_ENTITY])
     end = _entity_time(hass, call.data[ATTR_END_ENTITY])
     if start is None or end is None:
-        # An entity shows no time: no window
+        # An entity shows no time (the event is gone): no window, the next plan
+        # is cancelled; frozen and running plans are left to a person
+        if manager.find(owner=owner, statuses=[PlanStatus.PLANNED]):
+            await manager.async_cancel(owner)
         return
     start += timedelta(minutes=call.data[ATTR_START_OFFSET])
     end += timedelta(minutes=call.data[ATTR_END_OFFSET])

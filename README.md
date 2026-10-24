@@ -170,7 +170,8 @@ plan**, which it may change, plus plans that are already frozen or running.
 (one or more), **Start** and **End** (times of entities, e.g. Sun “Next sunset” / “Next sunrise”,
 each with an offset in minutes); under *More*: name (default: the devices' names), tags, how it
 is shown (by steps by default). If the end is before the start (e.g. at night), nothing is
-planned (`no_window`).
+planned (`no_window`). If an entity shows no time (`unknown`: the event is gone), the owner's
+next plan is cancelled; frozen and running plans stay.
 
 ```yaml
 - action: zaya_planner.plan_window
