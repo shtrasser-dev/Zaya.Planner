@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import datetime
 from typing import Any
 
 from homeassistant.util import dt as dt_util
@@ -80,46 +80,6 @@ class Step:
         )
 
 
-@dataclass(slots=True, frozen=True)
-class Freeze:
-    """When a plan freezes: a time of day, or minutes before its first step.
-
-    Neither: the plan freezes when its first step is due.
-    """
-
-    at: time | None = None
-    before: int | None = None
-
-    def moment(self, first: datetime) -> datetime:
-        """Return the freeze moment for a plan whose first step is at `first`."""
-        if self.before is not None:
-            return first - timedelta(minutes=self.before)
-        if self.at is not None:
-            local = dt_util.as_local(first)
-            moment = local.replace(
-                hour=self.at.hour, minute=self.at.minute, second=self.at.second, microsecond=0
-            )
-            # The last such time before the first step
-            if moment >= local:
-                moment -= timedelta(days=1)
-            return dt_util.as_utc(moment)
-        return first
-
-    def as_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable representation."""
-        return {
-            "at": self.at.isoformat() if self.at is not None else None,
-            "before": self.before,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> Freeze:
-        """Restore a freeze saved with as_dict."""
-        data = data or {}
-        at = data.get("at")
-        return cls(at=dt_util.parse_time(at) if at else None, before=data.get("before"))
-
-
 @dataclass(slots=True)
 class Plan:
     """A sequence of steps run as one whole, made by an owner.
@@ -133,9 +93,10 @@ class Plan:
     steps: list[Step]
     summary: str = ""
     status: PlanStatus = PlanStatus.PLANNED
-    freeze: Freeze = field(default_factory=Freeze)
-    # When the plan freezes (worked out from `freeze` and the time to fix)
-    freeze_moment: datetime | None = None
+    # Tags from the dictionary: for people, and to freeze or unfreeze plans together
+    tags: list[str] = field(default_factory=list)
+    # When it was frozen (by “freeze plans”, or when its first step was due)
+    frozen_at: datetime | None = None
     # Script run when the plan fails
     on_failure: str | None = None
     # On the calendar: one event (span) or one per step (steps)
@@ -185,8 +146,8 @@ class Plan:
             "summary": self.summary,
             "status": str(self.status),
             "steps": [step.as_dict() for step in self.steps],
-            "freeze": self.freeze.as_dict(),
-            "freeze_moment": _dt_to_str(self.freeze_moment),
+            "tags": self.tags,
+            "frozen_at": _dt_to_str(self.frozen_at),
             "on_failure": self.on_failure,
             "display": self.display,
             "created_at": _dt_to_str(self.created_at),
@@ -205,8 +166,8 @@ class Plan:
             summary=data.get("summary") or "",
             status=PlanStatus(data.get("status", PlanStatus.PLANNED)),
             steps=[Step.from_dict(step) for step in data.get("steps", [])],
-            freeze=Freeze.from_dict(data.get("freeze")),
-            freeze_moment=_dt_from_str(data.get("freeze_moment")),
+            tags=list(data.get("tags") or []),
+            frozen_at=_dt_from_str(data.get("frozen_at")),
             on_failure=data.get("on_failure"),
             display=data.get("display") or DISPLAY_SPAN,
             created_at=_dt_from_str(data.get("created_at")) or dt_util.utcnow(),

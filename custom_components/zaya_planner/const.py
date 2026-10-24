@@ -12,7 +12,6 @@ STORAGE_VERSION: Final = 1
 # Options (set in the integration's "Configure" dialog)
 CONF_ACTION_PREFIX: Final = "action_prefix"
 CONF_LATENESS_HOURS: Final = "lateness_hours"
-CONF_FIX_MINUTES: Final = "fix_minutes"
 CONF_RETENTION_DAYS: Final = "retention_days"
 CONF_NOTIFY_ACTION: Final = "notify_action"
 
@@ -20,8 +19,6 @@ CONF_NOTIFY_ACTION: Final = "notify_action"
 DEFAULT_ACTION_PREFIX: Final = "script.step_"
 # The first step of a plan is not run if it is later than this
 DEFAULT_LATENESS_HOURS: Final = 5
-# A plan is frozen no sooner than this after it last changed: time to undo a mistake
-DEFAULT_FIX_MINUTES: Final = 10
 DEFAULT_RETENTION_DAYS: Final = 3
 # Empty: a persistent notification in Home Assistant
 DEFAULT_NOTIFY_ACTION: Final = ""
@@ -57,6 +54,9 @@ SERVICE_CANCEL_PLAN: Final = "cancel_plan"
 SERVICE_GET_PLANS: Final = "get_plans"
 SERVICE_ENSURE_STATE: Final = "ensure_state"
 SERVICE_FIND_EVENTS: Final = "find_events"
+SERVICE_PLAN_WINDOW: Final = "plan_window"
+SERVICE_FREEZE_PLANS: Final = "freeze_plans"
+SERVICE_UNFREEZE_PLANS: Final = "unfreeze_plans"
 
 # Built-in action a step may run besides scripts: turn on/off and confirm
 BUILTIN_ACTIONS: Final = frozenset({f"{DOMAIN}.{SERVICE_ENSURE_STATE}"})
@@ -72,8 +72,14 @@ ATTR_DEVICES: Final = "devices"
 ATTR_STATE: Final = "state"
 ATTR_ACTION: Final = "action"
 ATTR_DATA: Final = "data"
-ATTR_FREEZE_AT: Final = "freeze_at"
-ATTR_FREEZE_BEFORE: Final = "freeze_before"
+ATTR_TAGS: Final = "tags"
+# “Turn on for a while”: the start and the end are times of entities plus minutes
+ATTR_START_ENTITY: Final = "start_entity"
+ATTR_START_OFFSET: Final = "start_offset"
+ATTR_END_ENTITY: Final = "end_entity"
+ATTR_END_OFFSET: Final = "end_offset"
+# “Freeze plans”: those that start within this many hours
+ATTR_WITHIN_HOURS: Final = "within_hours"
 ATTR_ON_FAILURE: Final = "on_failure"
 ATTR_FORCE: Final = "force"
 # How a plan is shown on the calendar: one event from first to last step, or one per step
@@ -148,6 +154,8 @@ class PlanResult(StrEnum):
     FROZEN = "frozen"
     # The first step is in the past: nothing is planned
     PAST = "past"
+    # “Turn on for a while”: no window now (an end before its start, no time)
+    NO_WINDOW = "no_window"
 
 
 # Fired when rules should plan again (device trigger “time to plan”): Home

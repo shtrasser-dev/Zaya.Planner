@@ -31,7 +31,8 @@ from .const import (
     StepStatus,
 )
 from .messages import message
-from .models import Freeze, Plan, Step
+from .description import norm
+from .models import Plan, Step
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,6 +49,12 @@ def local_text(value: datetime) -> str:
     return f"{dt_util.as_local(value):%d.%m %H:%M}"
 
 
+def _has_tag(plan: Plan, tags: list[str]) -> bool:
+    """Return True if the plan has any of the tags; no tags asked: any plan."""
+    have = {norm(tag) for tag in plan.tags}
+    return not tags or any(norm(tag) in have for tag in tags)
+
+
 def _same_steps(first: list[Step], second: list[Step]) -> bool:
     return len(first) == len(second) and all(a.same_as(b) for a, b in zip(first, second))
 
@@ -55,11 +62,10 @@ def _same_steps(first: list[Step], second: list[Step]) -> bool:
 class PlanManager:
     """Keep the plans and save every change to disk right away."""
 
-    def __init__(self, hass: HomeAssistant, entry_id: str, fix: timedelta) -> None:
-        """Initialize the manager; `fix` is the time to fix before a plan freezes."""
+    def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
+        """Initialize the manager."""
         self.hass = hass
         self._entry_id = entry_id
-        self._fix = fix
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, STORAGE_KEY, atomic_writes=True
         )
@@ -98,11 +104,6 @@ class PlanManager:
     def _locked(self, owner: str) -> list[Plan]:
         return [plan for plan in self.find(owner=owner) if plan.is_locked]
 
-    def freeze_moment(self, plan: Plan) -> datetime:
-        """Return when a plan freezes: its freeze time, but not before the time to fix."""
-        moment = max(plan.freeze.moment(plan.start), plan.updated_at + self._fix)
-        return min(moment, plan.start)
-
     # ---------------------------------------------------------------- changes
 
     async def async_set_plan(
@@ -111,7 +112,7 @@ class PlanManager:
         steps: list[Step],
         *,
         summary: str = "",
-        freeze: Freeze | None = None,
+        tags: list[str] | None = None,
         on_failure: str | None = None,
         display: str = DISPLAY_SPAN,
         force: bool = False,
@@ -122,7 +123,7 @@ class PlanManager:
         those are changed only with `force` (a person's choice).
         """
         now = dt_util.utcnow()
-        freeze = freeze or Freeze()
+        tags = list(tags or [])
         locked = self._locked(owner)
         overlapping = [plan for plan in locked if steps[0].at <= plan.end]
         if overlapping:
@@ -142,8 +143,8 @@ class PlanManager:
         plan = self._next_plan(owner)
         if plan is not None and (
             _same_steps(plan.steps, steps)
-            and (plan.summary, plan.freeze, plan.on_failure, plan.display)
-            == (summary, freeze, on_failure, display)
+            and (plan.summary, plan.tags, plan.on_failure, plan.display)
+            == (summary, tags, on_failure, display)
         ):
             if overlapping:
                 await self._async_changed()
@@ -157,18 +158,13 @@ class PlanManager:
             plan.steps = steps
             result = PlanResult.UPDATED
         plan.summary = summary
-        plan.freeze = freeze
+        plan.tags = tags
         plan.on_failure = on_failure
         plan.display = display
         plan.updated_at = now
-        plan.freeze_moment = self.freeze_moment(plan)
         self.log(
             message(
-                self.hass,
-                f"plan_{result}",
-                summary=plan.display_summary,
-                start=local_text(plan.start),
-                freeze=local_text(plan.freeze_moment),
+                self.hass, f"plan_{result}", summary=plan.display_summary, start=local_text(plan.start)
             )
         )
         await self._async_changed()
@@ -216,14 +212,46 @@ class PlanManager:
             return None
         for step in plan.steps:
             step.at += delta
-        if plan.status == PlanStatus.PLANNED:
-            plan.updated_at = dt_util.utcnow()
-            plan.freeze_moment = self.freeze_moment(plan)
+        plan.updated_at = dt_util.utcnow()
         self.log(
             message(self.hass, "plan_moved", summary=plan.display_summary, start=local_text(plan.start))
         )
         await self._async_changed()
         return plan
+
+    async def async_freeze(self, tags: list[str], within: timedelta) -> list[Plan]:
+        """Freeze the planned plans with any of the tags (none: all) that start within a time."""
+        limit = dt_util.utcnow() + within
+        plans = [
+            plan
+            for plan in self.find(statuses=[PlanStatus.PLANNED])
+            if plan.start <= limit and _has_tag(plan, tags)
+        ]
+        for plan in plans:
+            self.freeze(plan)
+        if plans:
+            await self._async_changed()
+        return plans
+
+    def freeze(self, plan: Plan) -> None:
+        """Freeze a plan: from now on only a person may change or cancel it."""
+        plan.status = PlanStatus.FROZEN
+        plan.frozen_at = dt_util.utcnow()
+        self.log(
+            message(self.hass, "plan_frozen", summary=plan.display_summary, start=local_text(plan.start))
+        )
+
+    async def async_unfreeze(self, tags: list[str]) -> list[Plan]:
+        """Unfreeze the frozen plans with any of the tags (none: all) that have not started."""
+        plans = [plan for plan in self.find(statuses=[PlanStatus.FROZEN]) if _has_tag(plan, tags)]
+        for plan in plans:
+            plan.status = PlanStatus.PLANNED
+            plan.frozen_at = None
+            plan.conflicts = []
+            self.log(message(self.hass, "plan_unfrozen", summary=plan.display_summary))
+        if plans:
+            await self._async_changed()
+        return plans
 
     def _close(self, plan: Plan, status: PlanStatus, reason: str) -> None:
         """Close a plan; its unfinished steps are cancelled."""
@@ -243,7 +271,7 @@ class PlanManager:
             self.hass,
             f"conflict_{kind}",
             summary=plan.display_summary,
-            frozen=local_text(plan.freeze_moment or plan.start),
+            frozen=local_text(plan.frozen_at or plan.start),
             owner=plan.owner,
             now=local_text(dt_util.utcnow()),
         )

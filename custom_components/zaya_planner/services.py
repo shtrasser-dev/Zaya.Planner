@@ -34,24 +34,28 @@ from .const import (
     ATTR_DISPLAY,
     ATTR_END,
     ATTR_ENTITY_ID,
+    ATTR_END_ENTITY,
+    ATTR_END_OFFSET,
     ATTR_EVENT,
     ATTR_EVENTS,
     ATTR_FILTER,
     ATTR_FIRST_OF_DAY,
     ATTR_FORCE,
-    ATTR_FREEZE_AT,
-    ATTR_FREEZE_BEFORE,
     ATTR_OFFSET,
     ATTR_ON_FAILURE,
     ATTR_ONLY_FUTURE,
     ATTR_OWNER,
     ATTR_PLANS,
     ATTR_START,
+    ATTR_START_ENTITY,
+    ATTR_START_OFFSET,
     ATTR_STATE,
     ATTR_STATUS,
     ATTR_STEPS,
     ATTR_SUBTRACT,
     ATTR_SUMMARY,
+    ATTR_TAGS,
+    ATTR_WITHIN_HOURS,
     BUILTIN_ACTIONS,
     CONF_ACTION_PREFIX,
     DEFAULT_ACTION_PREFIX,
@@ -64,15 +68,18 @@ from .const import (
     SERVICE_CANCEL_PLAN,
     SERVICE_ENSURE_STATE,
     SERVICE_FIND_EVENTS,
+    SERVICE_FREEZE_PLANS,
     SERVICE_GET_PLANS,
+    SERVICE_PLAN_WINDOW,
     SERVICE_SET_PLAN,
+    SERVICE_UNFREEZE_PLANS,
     PlanResult,
     PlanStatus,
 )
 from .description import Filter
 from .display import plan_info
 from .ensure import async_ensure_state
-from .models import Freeze, Step
+from .models import Step
 from .owners import async_track_owners, owner_of
 from .store import as_aware
 
@@ -110,10 +117,7 @@ SET_PLAN_SCHEMA = probatio.All(
         {
             probatio.Optional(ATTR_OWNER): cv.string,
             probatio.Optional(ATTR_SUMMARY, default=""): cv.string,
-            probatio.Optional(ATTR_FREEZE_AT): cv.time,
-            probatio.Optional(ATTR_FREEZE_BEFORE): probatio.All(
-                probatio.Coerce(int), probatio.Range(min=0, max=7 * 24 * 60)
-            ),
+            probatio.Optional(ATTR_TAGS): probatio.All(cv.ensure_list, [cv.string]),
             probatio.Optional(ATTR_ON_FAILURE): cv.entity_domain("script"),
             probatio.Optional(ATTR_STEPS): [_step_schema(STEP_FIELDS)],
             probatio.Optional(ATTR_DISPLAY, default=DISPLAY_SPAN): probatio.In(
@@ -122,7 +126,35 @@ SET_PLAN_SCHEMA = probatio.All(
             probatio.Optional(ATTR_FORCE, default=False): cv.boolean,
         }
     ),
-    cv.has_at_most_one_key(ATTR_FREEZE_AT, ATTR_FREEZE_BEFORE),
+)
+
+PLAN_WINDOW_SCHEMA = probatio.Schema(
+    {
+        probatio.Optional(ATTR_OWNER): cv.string,
+        probatio.Required(ATTR_DEVICES): cv.entity_ids,
+        probatio.Required(ATTR_START_ENTITY): cv.entity_id,
+        probatio.Optional(ATTR_START_OFFSET, default=0): probatio.Coerce(int),
+        probatio.Required(ATTR_END_ENTITY): cv.entity_id,
+        probatio.Optional(ATTR_END_OFFSET, default=0): probatio.Coerce(int),
+        probatio.Optional(ATTR_SUMMARY, default=""): cv.string,
+        probatio.Optional(ATTR_TAGS): probatio.All(cv.ensure_list, [cv.string]),
+        probatio.Optional(ATTR_DISPLAY, default=DISPLAY_STEPS): probatio.In(
+            [DISPLAY_SPAN, DISPLAY_STEPS]
+        ),
+    }
+)
+
+FREEZE_PLANS_SCHEMA = probatio.Schema(
+    {
+        probatio.Optional(ATTR_TAGS): probatio.All(cv.ensure_list, [cv.string]),
+        probatio.Optional(ATTR_WITHIN_HOURS, default=12): probatio.All(
+            probatio.Coerce(float), probatio.Range(min=0, max=7 * 24)
+        ),
+    }
+)
+
+UNFREEZE_PLANS_SCHEMA = probatio.Schema(
+    {probatio.Optional(ATTR_TAGS): probatio.All(cv.ensure_list, [cv.string])}
 )
 
 CANCEL_PLAN_SCHEMA = probatio.Schema(
@@ -175,6 +207,24 @@ def _get_entry(hass: HomeAssistant) -> Any:
     if not entries:
         raise _error("not_loaded")
     return entries[0]
+
+
+def _tags(hass: HomeAssistant, words: list[str] | None) -> list[str]:
+    """Return tags in the dictionary's spelling, or explain which are not in it."""
+    dictionary = _get_entry(hass).runtime_data.events.dictionary
+    tags: list[str] = []
+    unknown: list[str] = []
+    for word in words or []:
+        word = word.strip().lstrip("#")
+        if not word:
+            continue
+        if (tag := dictionary.tag(word)) is None:
+            unknown.append(f"#{word}")
+        elif tag not in tags:
+            tags.append(tag)
+    if unknown:
+        raise _error("unknown_filter_words", words=", ".join(unknown))
+    return tags
 
 
 def _entity_time(hass: HomeAssistant, entity_id: str) -> datetime | None:
@@ -303,17 +353,65 @@ async def _async_set_plan(call: ServiceCall) -> ServiceResponse:
     if steps[0].at <= dt_util.utcnow():
         # Too late for this plan (e.g. its first step was a while ago): nothing changes
         return {"result": str(PlanResult.PAST), "plan": None}
-    freeze = Freeze(at=call.data.get(ATTR_FREEZE_AT), before=call.data.get(ATTR_FREEZE_BEFORE))
     plan, result = await manager.async_set_plan(
         owner,
         steps,
         summary=call.data[ATTR_SUMMARY],
-        freeze=freeze,
+        tags=_tags(hass, call.data.get(ATTR_TAGS)),
         on_failure=call.data.get(ATTR_ON_FAILURE),
         display=call.data[ATTR_DISPLAY],
         force=force,
     )
     return {"result": str(result), "plan": plan_info(hass, plan) if plan else None}
+
+
+async def _async_plan_window(call: ServiceCall) -> ServiceResponse:
+    """Turn devices on at the start and off at the end: a plan of two steps."""
+    hass = call.hass
+    manager = _get_entry(hass).runtime_data.manager
+    owner = await _async_owner(call)
+    tags = _tags(hass, call.data.get(ATTR_TAGS))
+    start = _entity_time(hass, call.data[ATTR_START_ENTITY])
+    end = _entity_time(hass, call.data[ATTR_END_ENTITY])
+    if start is None or end is None:
+        return {"result": str(PlanResult.NO_WINDOW), "plan": None}
+    start += timedelta(minutes=call.data[ATTR_START_OFFSET])
+    end += timedelta(minutes=call.data[ATTR_END_OFFSET])
+    if end <= start:
+        # E.g. at night: the next sunset is tomorrow, the next sunrise this morning
+        return {"result": str(PlanResult.NO_WINDOW), "plan": None}
+    if start <= dt_util.utcnow():
+        return {"result": str(PlanResult.PAST), "plan": None}
+    devices = call.data[ATTR_DEVICES]
+    action = f"{DOMAIN}.{SERVICE_ENSURE_STATE}"
+    steps = [
+        Step(at=start, action=action, data={ATTR_ENTITY_ID: devices, ATTR_STATE: "on"}),
+        Step(at=end, action=action, data={ATTR_ENTITY_ID: devices, ATTR_STATE: "off"}),
+    ]
+    summary = call.data[ATTR_SUMMARY] or ", ".join(
+        state.name if (state := hass.states.get(entity_id)) else entity_id
+        for entity_id in devices
+    )
+    plan, result = await manager.async_set_plan(
+        owner, steps, summary=summary, tags=tags, display=call.data[ATTR_DISPLAY]
+    )
+    return {"result": str(result), "plan": plan_info(hass, plan) if plan else None}
+
+
+async def _async_freeze_plans(call: ServiceCall) -> ServiceResponse:
+    hass = call.hass
+    manager = _get_entry(hass).runtime_data.manager
+    plans = await manager.async_freeze(
+        _tags(hass, call.data.get(ATTR_TAGS)), timedelta(hours=call.data[ATTR_WITHIN_HOURS])
+    )
+    return {ATTR_PLANS: [plan_info(hass, plan) for plan in plans]}
+
+
+async def _async_unfreeze_plans(call: ServiceCall) -> ServiceResponse:
+    hass = call.hass
+    manager = _get_entry(hass).runtime_data.manager
+    plans = await manager.async_unfreeze(_tags(hass, call.data.get(ATTR_TAGS)))
+    return {ATTR_PLANS: [plan_info(hass, plan) for plan in plans]}
 
 
 async def _async_cancel_plan(call: ServiceCall) -> ServiceResponse:
@@ -384,6 +482,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
         (SERVICE_GET_PLANS, _async_get_plans, GET_PLANS_SCHEMA, SupportsResponse.ONLY),
         (SERVICE_ENSURE_STATE, _async_ensure_state, ENSURE_STATE_SCHEMA, SupportsResponse.OPTIONAL),
         (SERVICE_FIND_EVENTS, _async_find_events, FIND_EVENTS_SCHEMA, SupportsResponse.ONLY),
+        (SERVICE_PLAN_WINDOW, _async_plan_window, PLAN_WINDOW_SCHEMA, SupportsResponse.OPTIONAL),
+        (SERVICE_FREEZE_PLANS, _async_freeze_plans, FREEZE_PLANS_SCHEMA, SupportsResponse.OPTIONAL),
+        (SERVICE_UNFREEZE_PLANS, _async_unfreeze_plans, UNFREEZE_PLANS_SCHEMA, SupportsResponse.OPTIONAL),
     ):
         hass.services.async_register(
             DOMAIN, name, handler, schema=schema, supports_response=response

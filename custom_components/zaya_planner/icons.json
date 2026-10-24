@@ -38,6 +38,15 @@
     },
     "find_events": {
       "service": "mdi:calendar-filter"
+    },
+    "plan_window": {
+      "service": "mdi:clock-time-four-outline"
+    },
+    "freeze_plans": {
+      "service": "mdi:snowflake"
+    },
+    "unfreeze_plans": {
+      "service": "mdi:snowflake-off"
     }
   }
 }

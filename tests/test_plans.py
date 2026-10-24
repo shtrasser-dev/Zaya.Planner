@@ -9,6 +9,8 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.zaya_planner.config_flow import DEFAULT_OPTIONS
+from custom_components.zaya_planner.const import CONF_TAGS, DOMAIN
 from homeassistant.const import EVENT_LOGBOOK_ENTRY
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
@@ -22,6 +24,19 @@ NIGHT = [
     step("2026-10-22T01:50:00+00:00", "switch.charger"),
     step("2026-10-22T03:20:00+00:00", "switch.charger", "off"),
 ]
+
+
+@pytest.fixture
+def config_entry() -> MockConfigEntry:
+    """The dictionary has the tag “night”."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title="Zaya Planner",
+        data={},
+        options={**DEFAULT_OPTIONS, CONF_TAGS: ["night"]},
+        version=1,
+        minor_version=4,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -146,16 +161,32 @@ async def test_past_plan_is_not_made(hass: HomeAssistant, setup_entry: MockConfi
     assert [p["start"] for p in await get_plans(hass)] == ["2026-10-21T16:00:00+03:00"]
 
 
+async def freeze(hass: HomeAssistant, **data) -> list[dict]:
+    response = await hass.services.async_call(
+        "zaya_planner", "freeze_plans", data, blocking=True, return_response=True
+    )
+    return response["plans"]
+
+
 async def test_freeze_and_conflicts(
     hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now
 ) -> None:
-    """Frozen at 23:00: automations cannot change it; the next plan is planned apart."""
+    """Frozen by tag: automations cannot change it; the next plan is planned apart."""
     logbook = async_capture_events(hass, EVENT_LOGBOOK_ENTRY)
-    response = await set_plan(hass, NIGHT, summary="Charging", freeze_at="23:00")
-    assert response["plan"]["freeze"] == "2026-10-21T23:00:00+03:00"
+    await set_plan(hass, NIGHT, summary="Charging", tags=["#Night"])
+    # Tomorrow afternoon: not within the 12 hours
+    tomorrow_lights = [step("2026-10-22T13:00:00+00:00"), step("2026-10-22T13:30:00+00:00", state="off")]
+    await set_plan(hass, tomorrow_lights, summary="Lights", owner="automation.other", tags=["night"])
 
-    await move_to(hass, frozen_now, "2026-10-21T20:00:01+00:00")
-    assert [p["status"] for p in await get_plans(hass)] == ["frozen"]
+    # At 23:00 the night plans are frozen: those with the tag, starting within 12 hours
+    frozen_now.move_to("2026-10-21T20:00:00+00:00")
+    frozen = await freeze(hass, tags=["night"], within_hours=12)
+    assert [p["summary"] for p in frozen] == ["Charging"]
+    assert frozen[0]["tags"] == ["night"]
+    assert {p["summary"]: p["status"] for p in await get_plans(hass)} == {
+        "Charging": "frozen",
+        "Lights": "planned",
+    }
 
     # At night a mistake: the automation plans something else, then cancels
     other = [step("2026-10-22T01:40:00+00:00", "switch.charger"), NIGHT[1]]
@@ -164,12 +195,11 @@ async def test_freeze_and_conflicts(
     assert (await cancel_plan(hass))["result"] == "frozen"
     # Each kind of conflict is written once
     assert len(conflicts(logbook)) == 2
-    plan = (await get_plans(hass))[0]
-    assert plan["status"] == "frozen"
-    assert len(plan["conflicts"]) == 2
+    plan = (await get_plans(hass, owner=OWNER))[0]
+    assert (plan["status"], len(plan["conflicts"])) == ("frozen", 2)
 
     # Planning the frozen plan again is nothing to tell
-    assert (await set_plan(hass, NIGHT, summary="Charging"))["result"] == "overlaps"
+    assert (await set_plan(hass, NIGHT, summary="Charging", tags=["night"]))["result"] == "overlaps"
     assert len(conflicts(logbook)) == 2
 
     # Tomorrow night is planned apart from it
@@ -180,26 +210,55 @@ async def test_freeze_and_conflicts(
     assert (await set_plan(hass, tomorrow, summary="Charging"))["result"] == "created"
     assert [p["status"] for p in await get_plans(hass, owner=OWNER)] == ["frozen", "planned"]
 
+    # Unfrozen: its owner may change it again
+    response = await hass.services.async_call(
+        "zaya_planner", "unfreeze_plans", {"tags": ["night"]}, blocking=True, return_response=True
+    )
+    assert [p["status"] for p in response["plans"]] == ["planned"]
+
     # A person cancels them all
     response = await cancel_plan(hass, force=True)
-    assert (response["result"], len(response["plans"])) == ("cancelled", 2)
+    assert response["result"] == "cancelled"
 
 
-async def test_time_to_fix(
-    hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now
-) -> None:
-    """Made after its freeze time: it freezes 10 minutes later, not at once."""
-    frozen_now.move_to("2026-10-21T20:30:00+00:00")
-    response = await set_plan(hass, NIGHT, freeze_at="23:00")
-    assert response["plan"]["freeze"] == "2026-10-21T23:40:00+03:00"
+async def test_unknown_tags(hass: HomeAssistant, setup_entry: MockConfigEntry) -> None:
+    """Tags must be in the dictionary."""
+    with pytest.raises(ServiceValidationError) as err:
+        await set_plan(hass, LIGHTS, tags=["cats"])
+    assert err.value.translation_key == "unknown_filter_words"
 
-    # Minutes before the first step
-    response = await set_plan(hass, NIGHT, freeze_before=120)
-    assert response["plan"]["freeze"] == "2026-10-22T02:50:00+03:00"
 
-    # Neither: when the first step is due
-    response = await set_plan(hass, NIGHT)
-    assert response["plan"]["freeze"] == "2026-10-22T04:50:00+03:00"
+async def test_plan_window(hass: HomeAssistant, setup_entry: MockConfigEntry) -> None:
+    """Turn on for a while: from sunset to sunrise, shown by steps; at night no window."""
+    hass.states.async_set("switch.yard", "off", {"friendly_name": "Yard lights"})
+    hass.states.async_set("sensor.sun_next_setting", "2026-10-21T14:51:00+00:00")
+    hass.states.async_set("sensor.sun_next_rising", "2026-10-22T04:43:00+00:00")
+    window = {
+        "owner": "automation.yard",
+        "devices": ["switch.yard"],
+        "start_entity": "sensor.sun_next_setting",
+        "end_entity": "sensor.sun_next_rising",
+        "end_offset": -10,
+    }
+
+    async def plan_window(**data) -> dict:
+        return await hass.services.async_call(
+            "zaya_planner", "plan_window", {**window, **data}, blocking=True, return_response=True
+        )
+
+    response = await plan_window(tags=["night"])
+    assert response["result"] == "created"
+    plan = response["plan"]
+    assert (plan["summary"], plan["tags"]) == ("Yard lights", ["night"])
+    assert [(s["at"], s["summary"]) for s in plan["steps"]] == [
+        ("2026-10-21T17:51:00+03:00", "Yard lights: on"),
+        ("2026-10-22T07:33:00+03:00", "Yard lights: off"),
+    ]
+    assert (await plan_window(tags=["night"]))["result"] == "unchanged"
+
+    # At night the next sunset is tomorrow and the next sunrise this morning
+    hass.states.async_set("sensor.sun_next_setting", "2026-10-22T14:49:00+00:00")
+    assert (await plan_window())["result"] == "no_window"
 
 
 async def test_owner_is_who_started_the_run(

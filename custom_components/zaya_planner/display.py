@@ -64,7 +64,8 @@ def plan_info(hass: HomeAssistant, plan: Plan) -> dict[str, Any]:
         "status_text": message(hass, f"plan_status_{plan.status}"),
         "start": dt_util.as_local(plan.start).isoformat(),
         "end": dt_util.as_local(plan.end).isoformat(),
-        "freeze": dt_util.as_local(plan.freeze_moment).isoformat() if plan.freeze_moment else None,
+        "tags": plan.tags,
+        "frozen_at": dt_util.as_local(plan.frozen_at).isoformat() if plan.frozen_at else None,
         "on_failure": plan.on_failure,
         "reason": plan.reason,
         "conflicts": plan.conflicts,
@@ -78,9 +79,11 @@ def plan_description(hass: HomeAssistant, plan: Plan) -> str:
         f"{message(hass, 'label_status')}: {message(hass, f'plan_status_{plan.status}')}",
         f"{message(hass, 'label_owner')}: {plan.owner}",
     ]
-    if plan.status == PlanStatus.PLANNED and plan.freeze_moment:
+    if plan.tags:
+        lines.append(" ".join(f"#{tag}" for tag in plan.tags))
+    if plan.status == PlanStatus.FROZEN and plan.frozen_at:
         lines.append(
-            f"{message(hass, 'label_freeze')}: {dt_util.as_local(plan.freeze_moment):%d.%m %H:%M}"
+            f"{message(hass, 'label_frozen')}: {dt_util.as_local(plan.frozen_at):%d.%m %H:%M}"
         )
     for step in plan.steps:
         line = (

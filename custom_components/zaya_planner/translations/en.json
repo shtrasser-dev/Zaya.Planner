@@ -16,7 +16,6 @@
         "title": "Zaya Planner settings",
         "data": {
           "lateness_hours": "Lateness of the first step",
-          "fix_minutes": "Time to fix",
           "action_prefix": "Allowed step scripts",
           "retention_days": "Keep finished plans",
           "notify_action": "Notifications",
@@ -26,7 +25,6 @@
         },
         "data_description": {
           "lateness_hours": "A plan whose first step cannot start this late (for example after Home Assistant was off) fails.",
-          "fix_minutes": "A plan freezes no sooner than this after it last changed: time to undo a mistake.",
           "action_prefix": "Only scripts whose entity id starts with this prefix can be steps, for example script.step_ (planning modules are script.plan_).",
           "retention_days": "Finished plans older than this are removed.",
           "notify_action": "Action that sends notifications about failed plans and errors in events, for example notify.mobile_app_phone or a script with title and message fields. Empty: a notification in Home Assistant.",
@@ -154,14 +152,6 @@
           "name": "Summary",
           "description": "Name of the plan on the calendar."
         },
-        "freeze_at": {
-          "name": "Freeze at",
-          "description": "Time of day: the plan freezes at the last such time before its first step."
-        },
-        "freeze_before": {
-          "name": "Freeze before",
-          "description": "Minutes before the first step. Neither: the plan freezes when its first step is due."
-        },
         "on_failure": {
           "name": "On failure",
           "description": "Script run if the plan fails, with the fields plan, step, reason and done."
@@ -177,6 +167,10 @@
         "display": {
           "name": "On the calendar",
           "description": "One event from the first step to the last, or a short event for each step."
+        },
+        "tags": {
+          "name": "Tags",
+          "description": "Tags from the dictionary, without “#”: to freeze or unfreeze plans together."
         }
       }
     },
@@ -253,6 +247,73 @@
         "subtract": {
           "name": "Minus attribute",
           "description": "A key from the dictionary whose value is a duration (e.g. Travel: 40:00): the time of an event (at) is its start minus it."
+        }
+      }
+    },
+    "plan_window": {
+      "name": "Turn on for a while",
+      "description": "A plan of two steps: turn the devices on at the start and off at the end. The start and the end are times of entities plus minutes. If the end is before the start (e.g. at night), nothing is planned.",
+      "fields": {
+        "devices": {
+          "name": "Devices",
+          "description": "One or more: switches, lights, input booleans…"
+        },
+        "start_entity": {
+          "name": "Start",
+          "description": "The time of an entity: Sun “Next sunset”, a timestamp sensor, a time helper."
+        },
+        "start_offset": {
+          "name": "Start: offset",
+          "description": "Minutes later; minus: earlier."
+        },
+        "end_entity": {
+          "name": "End",
+          "description": "The time of an entity, e.g. Sun “Next sunrise”."
+        },
+        "end_offset": {
+          "name": "End: offset",
+          "description": "Minutes later; minus: earlier."
+        },
+        "summary": {
+          "name": "Name",
+          "description": "Name of the plan. Empty: the names of the devices."
+        },
+        "tags": {
+          "name": "Tags",
+          "description": "Tags from the dictionary, without “#”: to freeze or unfreeze plans together."
+        },
+        "display": {
+          "name": "On the calendar",
+          "description": "A short event for each step, or one event from the start to the end."
+        }
+      },
+      "sections": {
+        "more": {
+          "name": "More"
+        }
+      }
+    },
+    "freeze_plans": {
+      "name": "Freeze plans",
+      "description": "Freezes the planned plans with any of these tags (empty: all) that start within the hours given. After that automations cannot change or cancel them; a person still can, in the Plans calendar.",
+      "fields": {
+        "tags": {
+          "name": "Tags",
+          "description": "Tags of the plans, without “#”. Empty: all plans."
+        },
+        "within_hours": {
+          "name": "Start within",
+          "description": "Only plans that start within this many hours."
+        }
+      }
+    },
+    "unfreeze_plans": {
+      "name": "Unfreeze plans",
+      "description": "Unfreezes the frozen plans with any of these tags (empty: all) that have not started: their owners may change them again.",
+      "fields": {
+        "tags": {
+          "name": "Tags",
+          "description": "Tags of the plans, without “#”. Empty: all plans."
         }
       }
     }

@@ -7,14 +7,12 @@ from custom_components.zaya_planner.config_flow import DEFAULT_OPTIONS
 from custom_components.zaya_planner.const import (
     CONF_ACTION_PREFIX,
     CONF_CALENDARS,
-    CONF_FIX_MINUTES,
     CONF_KEYS,
     CONF_LATENESS_HOURS,
     CONF_NOTIFY_ACTION,
     CONF_RETENTION_DAYS,
     CONF_TAGS,
     DEFAULT_ACTION_PREFIX,
-    DEFAULT_FIX_MINUTES,
     DEFAULT_LATENESS_HOURS,
     DEFAULT_RETENTION_DAYS,
     DOMAIN,
@@ -37,7 +35,6 @@ async def test_user_flow(hass: HomeAssistant) -> None:
     assert result["title"] == "Zaya Planner"
     assert result["options"] == {
         CONF_LATENESS_HOURS: DEFAULT_LATENESS_HOURS,
-        CONF_FIX_MINUTES: DEFAULT_FIX_MINUTES,
         CONF_ACTION_PREFIX: DEFAULT_ACTION_PREFIX,
         CONF_RETENTION_DAYS: DEFAULT_RETENTION_DAYS,
         CONF_NOTIFY_ACTION: "",
@@ -83,7 +80,6 @@ async def test_options_flow(hass: HomeAssistant, setup_entry: MockConfigEntry) -
         result["flow_id"],
         {
             CONF_LATENESS_HOURS: 2,
-            CONF_FIX_MINUTES: 5.0,
             CONF_ACTION_PREFIX: " script.task_ ",
             CONF_RETENTION_DAYS: 7.0,
             CONF_NOTIFY_ACTION: " notify.mobile_app_phone ",
@@ -93,7 +89,6 @@ async def test_options_flow(hass: HomeAssistant, setup_entry: MockConfigEntry) -
     await hass.async_block_till_done()
     assert setup_entry.options == {
         CONF_LATENESS_HOURS: 2,
-        CONF_FIX_MINUTES: 5,
         CONF_ACTION_PREFIX: "script.task_",
         CONF_RETENTION_DAYS: 7,
         CONF_NOTIFY_ACTION: "notify.mobile_app_phone",

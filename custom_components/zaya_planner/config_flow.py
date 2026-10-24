@@ -27,14 +27,12 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_ACTION_PREFIX,
     CONF_CALENDARS,
-    CONF_FIX_MINUTES,
     CONF_KEYS,
     CONF_LATENESS_HOURS,
     CONF_NOTIFY_ACTION,
     CONF_RETENTION_DAYS,
     CONF_TAGS,
     DEFAULT_ACTION_PREFIX,
-    DEFAULT_FIX_MINUTES,
     DEFAULT_LATENESS_HOURS,
     DEFAULT_NOTIFY_ACTION,
     DEFAULT_RETENTION_DAYS,
@@ -44,7 +42,6 @@ from .description import norm
 
 DEFAULT_OPTIONS: dict[str, Any] = {
     CONF_LATENESS_HOURS: DEFAULT_LATENESS_HOURS,
-    CONF_FIX_MINUTES: DEFAULT_FIX_MINUTES,
     CONF_ACTION_PREFIX: DEFAULT_ACTION_PREFIX,
     CONF_RETENTION_DAYS: DEFAULT_RETENTION_DAYS,
     CONF_NOTIFY_ACTION: DEFAULT_NOTIFY_ACTION,
@@ -81,13 +78,6 @@ def _options_schema(options: dict[str, Any]) -> probatio.Schema:
                     step=0.5,
                     mode=NumberSelectorMode.BOX,
                     unit_of_measurement="h",
-                )
-            ),
-            probatio.Required(
-                CONF_FIX_MINUTES, default=options[CONF_FIX_MINUTES]
-            ): NumberSelector(
-                NumberSelectorConfig(
-                    min=0, max=120, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement="min"
                 )
             ),
             probatio.Required(
@@ -157,7 +147,6 @@ class ZayaPlannerOptionsFlow(OptionsFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             user_input[CONF_RETENTION_DAYS] = int(user_input[CONF_RETENTION_DAYS])
-            user_input[CONF_FIX_MINUTES] = int(user_input[CONF_FIX_MINUTES])
             prefix = user_input[CONF_ACTION_PREFIX].strip()
             user_input[CONF_ACTION_PREFIX] = prefix
             notify = user_input.get(CONF_NOTIFY_ACTION, "").strip()

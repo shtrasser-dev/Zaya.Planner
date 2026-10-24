@@ -21,9 +21,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CLEANUP_INTERVAL,
-    CONF_FIX_MINUTES,
     CONF_RETENTION_DAYS,
-    DEFAULT_FIX_MINUTES,
     DEFAULT_RETENTION_DAYS,
     DOMAIN,
 )
@@ -64,8 +62,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) -> bool:
     """Set up Zaya Planner from a config entry."""
-    fix = timedelta(minutes=entry.options.get(CONF_FIX_MINUTES, DEFAULT_FIX_MINUTES))
-    manager = PlanManager(hass, entry.entry_id, fix)
+    manager = PlanManager(hass, entry.entry_id)
     await manager.async_load()
     executor = Executor(hass, entry, manager)
     entry.runtime_data = ZayaPlannerData(

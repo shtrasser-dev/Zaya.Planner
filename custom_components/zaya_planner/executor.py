@@ -1,4 +1,4 @@
-"""Executor: freezes plans, runs their steps in turn, retries, reports failures.
+"""Executor: runs the steps of plans in turn, retries, reports failures.
 
 A step's action is called with the step's data and must answer `{ok: true}` or
 `{ok: false, reason: "..."}` (zaya_planner.ensure_state does). A step that is
@@ -88,10 +88,7 @@ class Executor:
 
     def _wake(self, plan: Plan) -> datetime | None:
         """Return when something next happens to a plan."""
-        if plan.status == PlanStatus.PLANNED:
-            moment = plan.freeze_moment or plan.start
-            return moment if moment < plan.start else plan.start
-        if plan.status == PlanStatus.FROZEN:
+        if plan.status in (PlanStatus.PLANNED, PlanStatus.FROZEN):
             return plan.start
         if plan.status == PlanStatus.RUNNING and (step := plan.current_step()) is not None:
             return step.next_attempt or step.at
@@ -128,15 +125,12 @@ class Executor:
         self._async_schedule()
 
     async def _async_advance(self, uid: str) -> None:
-        """Freeze, start or make one attempt of a plan."""
+        """Start a plan or make one attempt of its current step."""
         try:
             plan = self.manager.get(uid)
             if plan is None or not plan.is_open:
                 return
             now = dt_util.utcnow()
-            if plan.status == PlanStatus.PLANNED and now < plan.start:
-                await self._async_freeze(plan)
-                return
             if plan.status in (PlanStatus.PLANNED, PlanStatus.FROZEN):
                 if now > plan.start + self._lateness:
                     # The first step could not start in time (Home Assistant was off)
@@ -144,7 +138,9 @@ class Executor:
                         plan, plan.steps[0], self._text("reason_late", due=local_text(plan.start))
                     )
                     return
+                # What has started is frozen: it is carried through
                 plan.status = PlanStatus.RUNNING
+                plan.frozen_at = plan.frozen_at or now
                 for step in plan.steps:
                     step.status = StepStatus.WAITING
             step = plan.current_step()
@@ -155,13 +151,6 @@ class Executor:
         finally:
             self._running.discard(uid)
             self._async_schedule()
-
-    async def _async_freeze(self, plan: Plan) -> None:
-        plan.status = PlanStatus.FROZEN
-        await self.manager.async_save()
-        self.manager.log(
-            self._text("plan_frozen", summary=plan.display_summary, start=local_text(plan.start))
-        )
 
     def _deadline(self, plan: Plan, step: Step) -> datetime:
         """Return by when a step must be done: the next step's time, or the lateness limit."""

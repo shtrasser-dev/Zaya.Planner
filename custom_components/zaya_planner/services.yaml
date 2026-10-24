@@ -1,3 +1,89 @@
+plan_window:
+  fields:
+    devices:
+      required: true
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: [switch, light, input_boolean, fan, climate, water_heater]
+    start_entity:
+      required: true
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: timestamp
+            - domain: input_datetime
+    start_offset:
+      default: 0
+      selector:
+        number:
+          min: -1440
+          max: 1440
+          unit_of_measurement: min
+          mode: box
+    end_entity:
+      required: true
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: timestamp
+            - domain: input_datetime
+    end_offset:
+      default: 0
+      selector:
+        number:
+          min: -1440
+          max: 1440
+          unit_of_measurement: min
+          mode: box
+    more:
+      collapsed: true
+      fields:
+        summary:
+          example: Yard lights
+          selector:
+            text:
+        tags:
+          example: night
+          selector:
+            text:
+              multiple: true
+        display:
+          default: steps
+          selector:
+            select:
+              translation_key: display
+              options:
+                - steps
+                - span
+
+freeze_plans:
+  fields:
+    tags:
+      example: night
+      selector:
+        text:
+          multiple: true
+    within_hours:
+      default: 12
+      selector:
+        number:
+          min: 0
+          max: 168
+          unit_of_measurement: h
+          mode: box
+
+unfreeze_plans:
+  fields:
+    tags:
+      example: night
+      selector:
+        text:
+          multiple: true
+
 add_step:
   fields:
     at_entity:
@@ -70,17 +156,11 @@ set_plan:
       example: Leaf charging
       selector:
         text:
-    freeze_at:
-      example: "23:00"
+    tags:
+      example: night
       selector:
-        time:
-    freeze_before:
-      selector:
-        number:
-          min: 0
-          max: 10080
-          unit_of_measurement: min
-          mode: box
+        text:
+          multiple: true
     on_failure:
       selector:
         entity:
