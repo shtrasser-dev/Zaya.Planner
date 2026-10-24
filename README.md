@@ -50,37 +50,8 @@ Maths                              07:00–07:35, weekly Mon–Fri
 Travel: 40:00
 ```
 
-A **planning module**: an ordinary script with fields (Settings → Automations & scenes → Scripts),
-made in the visual editor. It makes the plan with three actions; the templates only pass values:
-
-```yaml
-script:
-  plan_leaf_charging:
-    alias: Plan Leaf charging
-    fields:
-      departure: { selector: { datetime: {} } }
-      charge_minutes: { default: 90, selector: { number: { min: 0, max: 600 } } }
-      margin: { default: 30, selector: { number: { min: 0, max: 180 } } }
-    sequence:
-      - action: zaya_planner.add_step          # on: charge + margin minutes before leaving
-        data: { owner: "{{ this.entity_id }}", at: "{{ departure }}",
-                before: "{{ (margin | default(30)) + (charge_minutes | default(90)) }}",
-                devices: [switch.leaf_charger], state: "on" }
-      - action: zaya_planner.add_step          # off: margin minutes before leaving
-        data: { owner: "{{ this.entity_id }}", at: "{{ departure }}",
-                before: "{{ margin | default(30) }}",
-                devices: [switch.leaf_charger], state: "off" }
-      - action: zaya_planner.set_plan
-        data: { owner: "{{ this.entity_id }}", summary: Leaf charging,
-                freeze_at: "23:00", on_failure: script.leaf_charging_failed }
-```
-
-Field defaults of a script apply in the form only: when an automation leaves a field out, it is
-undefined, hence `| default(...)`. Called without a departure, the module adds no steps and
-`set_plan` cancels its next plan; a plan whose first step is already past is not made (`past`).
-
-An **automation** finds the departure and calls the module (in the visual editor the module's
-fields are a form):
+An **automation**, made in the visual editor without templates: two steps at the next
+`#leaf #take_there` event, then the plan:
 
 ```yaml
 alias: Leaf charging
@@ -90,12 +61,25 @@ triggers:
     device_id: <Zaya Planner device>
     type: time_to_plan
 actions:
-  - action: zaya_planner.find_events
-    data: { filter: "#leaf", first_of_day: true, only_future: true, subtract: Travel }
-    response_variable: found
-  - action: script.plan_leaf_charging
-    data: { departure: "{{ (found.events | first | default({})).at | default('') }}" }
+  - action: zaya_planner.add_step          # on: 2 hours before leaving
+    data: { event: "#leaf #take_there", subtract: Travel, offset: -120,
+            devices: [switch.leaf_charger], state: "on" }
+  - action: zaya_planner.add_step          # off: half an hour before leaving
+    data: { event: "#leaf #take_there", subtract: Travel, offset: -30,
+            devices: [switch.leaf_charger], state: "off" }
+  - action: zaya_planner.set_plan
+    data: { summary: Leaf charging, freeze_at: "23:00", display: steps,
+            on_failure: script.leaf_charging_failed }
 ```
+
+“Event” finds the next event of the chosen calendars that fits the filter; “Minus attribute”
+takes its travel time off the start. With no such event the steps are left out and `set_plan`
+cancels the next plan. The plan belongs to the automation (the hidden owner).
+
+For more logic (several cars, conditions, numbers worked out) put the steps in a **planning
+module**: a script with fields that the automation calls, as a form. A module that should own its
+plan whoever calls it sets `owner: "{{ this.entity_id }}"`; field defaults of a script apply in
+the form only, so templates use `{{ margin | default(30) }}`.
 
 In the evening the plan “Leaf charging 04:50–06:20” is on the **Plans** calendar; at 23:00 it is
 frozen (❄️) and no automation can change or cancel it any more. If the charger does not answer,
@@ -159,10 +143,13 @@ plan**, which it may change, plus plans that are already frozen or running.
 
 ### Making a plan
 
-- **`zaya_planner.add_step`** (`owner`, `at`, `before` / `after` minutes, `devices` + `state` or
-  `action` + `data`): adds a step to the plan being made **in this run**. Each step has its own
-  form in the visual editor; steps may be added in conditions and loops, also by scripts the
-  automation calls. A step without `at` is left out.
+- **`zaya_planner.add_step`**: adds a step to the plan being made **in this run**. Its time is one
+  of: **Time of** an entity (`at_entity`: Sun “Next sunset”, a timestamp sensor, a date-and-time
+  helper), the **time of an event** (`event` filter, `subtract` an attribute: the next fitting event
+  of the chosen calendars), or a **date and time** (`at`, also a template); then **Offset** minutes
+  (minus: earlier). What: **Devices** + **Turn on / Turn off**, or a step script (`action` +
+  `data`). Without a time (no such event, the sensor shows none) the step is left out. Steps may
+  be added in conditions and loops, also by scripts the automation calls.
 - **`zaya_planner.set_plan`** (`owner`, `summary`, `freeze_at` or `freeze_before`, `on_failure`,
   `display`, optionally `steps` as a list for YAML, `force`): makes the steps of this run the
   owner's next plan, replacing the one there was. **With no steps it cancels the next plan.**
