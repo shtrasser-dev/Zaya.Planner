@@ -258,3 +258,17 @@ async def test_calendar_and_sensors(
     await hass.async_block_till_done()
     assert (await get_plans(hass))[0]["status"] == "cancelled"
     assert hass.states.get("sensor.zaya_planner_plans").state == "0"
+
+
+async def test_saving_scripts_is_time_to_plan(
+    hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now
+) -> None:
+    """A script saved in the editor (script.reload): rules plan again once it is loaded."""
+    time_to_plan = async_capture_events(hass, EVENT_TIME_TO_PLAN)
+    hass.services.async_register("script", "reload", lambda call: None)
+    await hass.services.async_call("script", "reload", blocking=True)
+    await hass.async_block_till_done()
+    assert time_to_plan == []
+
+    await move_to(hass, frozen_now, "2026-10-21T12:00:03+00:00")
+    assert len(time_to_plan) == 1

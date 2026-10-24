@@ -231,7 +231,7 @@ themselves fail, that is written to the logbook and notified.
 ### Time to plan
 
 The device trigger **“Zaya Planner: time to plan”** (Device → Zaya Planner) fires after Home
-Assistant starts, when automations are saved, when events of the chosen calendars change, when a
+Assistant starts, when automations or scripts are saved, when events of the chosen calendars change, when a
 plan ends, and every 15 minutes. Add your own triggers too (a snow sensor changed).
 
 ## Entities
