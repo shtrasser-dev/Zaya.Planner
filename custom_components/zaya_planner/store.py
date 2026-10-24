@@ -173,9 +173,12 @@ class PlanManager:
     async def async_cancel(
         self, owner: str, *, force: bool = False
     ) -> tuple[list[Plan], PlanResult]:
-        """Cancel the owner's next plan; with `force` also its frozen and running ones."""
+        """Cancel the owner's planned plans; with `force` also its frozen and running ones.
+
+        Usually there is one planned plan; after “unfreeze plans” there may be more.
+        """
         cancelled: list[Plan] = []
-        if (plan := self._next_plan(owner)) is not None:
+        for plan in self.find(owner=owner, statuses=[PlanStatus.PLANNED]):
             self._close(plan, PlanStatus.CANCELLED, message(self.hass, "reason_owner"))
             cancelled.append(plan)
         locked = self._locked(owner)
