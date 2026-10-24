@@ -1,5 +1,9 @@
 plan_window:
   fields:
+    summary:
+      example: Yard lights
+      selector:
+        text:
     devices:
       required: true
       selector:
@@ -44,10 +48,6 @@ plan_window:
     more:
       collapsed: true
       fields:
-        summary:
-          example: Yard lights
-          selector:
-            text:
         tags:
           example: night
           selector:
@@ -152,13 +152,13 @@ add_step:
 
 set_plan:
   fields:
+    summary:
+      example: Leaf charging
+      selector:
+        text:
     owner:
       advanced: true
       example: "{{ this.entity_id }}"
-      selector:
-        text:
-    summary:
-      example: Leaf charging
       selector:
         text:
     tags:
