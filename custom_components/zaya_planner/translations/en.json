@@ -89,7 +89,7 @@
       "fields": {
         "owner": {
           "name": "Owner",
-          "description": "The automation or script making the plan, usually {{ this.entity_id }}."
+          "description": "The automation or script making the plan, usually the template with this.entity_id."
         },
         "at": {
           "name": "When",
@@ -127,7 +127,7 @@
       "fields": {
         "owner": {
           "name": "Owner",
-          "description": "The automation or script making the plan, usually {{ this.entity_id }}."
+          "description": "The automation or script making the plan, usually the template with this.entity_id."
         },
         "summary": {
           "name": "Summary",
