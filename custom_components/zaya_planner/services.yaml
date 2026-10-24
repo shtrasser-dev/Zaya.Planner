@@ -16,6 +16,7 @@ plan_window:
               device_class: timestamp
             - domain: input_datetime
     start_offset:
+      required: true
       default: 0
       selector:
         number:
@@ -32,6 +33,7 @@ plan_window:
               device_class: timestamp
             - domain: input_datetime
     end_offset:
+      required: true
       default: 0
       selector:
         number:
@@ -52,6 +54,7 @@ plan_window:
             text:
               multiple: true
         display:
+          required: true
           default: steps
           selector:
             select:
@@ -68,6 +71,7 @@ freeze_plans:
         text:
           multiple: true
     within_hours:
+      required: true
       default: 12
       selector:
         number:
@@ -111,6 +115,7 @@ add_step:
           selector:
             datetime:
     offset:
+      required: true
       default: 0
       selector:
         number:
@@ -167,6 +172,7 @@ set_plan:
           filter:
             domain: script
     display:
+      required: true
       default: span
       selector:
         select:
@@ -178,6 +184,7 @@ set_plan:
       selector:
         object:
     force:
+      required: true
       default: false
       selector:
         boolean:
@@ -190,6 +197,7 @@ cancel_plan:
       selector:
         text:
     force:
+      required: true
       default: false
       selector:
         boolean:
@@ -247,10 +255,12 @@ find_events:
       selector:
         datetime:
     first_of_day:
+      required: true
       default: false
       selector:
         boolean:
     only_future:
+      required: true
       default: false
       selector:
         boolean:
