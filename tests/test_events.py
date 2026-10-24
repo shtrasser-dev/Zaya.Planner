@@ -26,6 +26,7 @@ from custom_components.zaya_planner.const import (
     EVENT_TIME_TO_PLAN,
 )
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
+from homeassistant.config_entries import ConfigSubentryData
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.setup import async_setup_component
@@ -225,6 +226,97 @@ async def test_find_events(
     assert [e["summary"] for e in found] == ["School"]
     found = await find(hass, start="2026-10-23 00:00:00")
     assert [e["summary"] for e in found] == ["Trip", "Pool"]
+
+
+def departure(**data: Any) -> ConfigSubentryData:
+    """A departure “Выезд Leaf”: #leaf, travel time from “В пути”, 30 minutes by default."""
+    return ConfigSubentryData(
+        subentry_type="departure",
+        title="Выезд Leaf",
+        unique_id=None,
+        data={
+            "name": "Выезд Leaf",
+            "tags": ["leaf"],
+            "edge": "start",
+            "travel_key": "В пути",
+            "default_travel": {"hours": 0, "minutes": 30, "seconds": 0},
+            "first_of_day": True,
+            **data,
+        },
+    )
+
+
+async def setup_departure(
+    hass: HomeAssistant, config_entry: MockConfigEntry, freezer, **data: Any
+) -> None:
+    """Set up Zaya Planner with a departure and let the calendars be read."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Zaya Planner",
+        data={},
+        version=1,
+        minor_version=4,
+        options=dict(config_entry.options),
+        subentries_data=[departure(**data)],
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await settle(hass, freezer)
+
+
+async def test_departure(
+    hass: HomeAssistant,
+    calendars: dict[str, FakeCalendar],
+    config_entry: MockConfigEntry,
+    frozen_now,
+) -> None:
+    """The first #leaf event of a day, its start minus the travel time; then the next day."""
+    time_to_plan = async_capture_events(hass, EVENT_TIME_TO_PLAN)
+    await setup_departure(hass, config_entry, frozen_now)
+    # Departures are known: rules plan again
+    assert time_to_plan
+
+    # Thursday: Dad's work at 7:00 comes first; it has no travel time: 30 minutes
+    state = hass.states.get("sensor.vyezd_leaf")
+    assert state.state == "2026-10-22T03:30:00+00:00"
+    assert state.attributes["summary"] == "Work"
+    assert state.attributes["travel"] == "00:30:00"
+    assert state.attributes["default_travel"] is True
+    assert (
+        "Work (Dad, 22.10): no “В пути”, the departure uses the default travel time"
+        in hass.states.get(ERRORS).attributes["errors"]
+    )
+
+    # Once it passes, rules plan again; no more #leaf events
+    fired = len(time_to_plan)
+    frozen_now.move_to("2026-10-22T03:31:00+00:00")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.vyezd_leaf").state == "unknown"
+    assert len(time_to_plan) > fired
+
+
+@pytest.mark.parametrize(
+    ("edge", "expected"),
+    [("start", "2026-10-22T04:20:00+00:00"), ("end", "2026-10-22T10:05:00+00:00")],
+)
+async def test_departure_with_travel_time(
+    hass: HomeAssistant,
+    calendars: dict[str, FakeCalendar],
+    config_entry: MockConfigEntry,
+    frozen_now,
+    edge: str,
+    expected: str,
+) -> None:
+    """School 8:00–13:45 (Moscow), 40 minutes away: leave at 7:20, or at 13:05 to pick up."""
+    await setup_departure(
+        hass, config_entry, frozen_now, tags=["leaf", "отвезти"], edge=edge
+    )
+    state = hass.states.get("sensor.vyezd_leaf")
+    assert state.state == expected
+    assert state.attributes["travel"] == "00:40:00"
+    assert state.attributes["default_travel"] is False
 
 
 async def test_step_at_an_event(

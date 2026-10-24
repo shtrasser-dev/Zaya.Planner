@@ -60,6 +60,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "event_empty_value": "{where}: “{value}” has no value",
         "event_too_long": "{where}: the event is longer than a day, check its dates",
         "event_no_calendar": "Calendar {calendar} is not found",
+        "event_no_travel_time": "{where}: no “{value}”, the departure uses the default travel time",
+        "event_not_duration": "{where}: “{value}” is not a duration like 00:40:00, the departure uses the default travel time",
     },
     "ru": {
         "plan_created": "план «{summary}» составлен: начало {start}",
@@ -114,6 +116,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "event_empty_value": "{where}: у «{value}» нет значения",
         "event_too_long": "{where}: событие длиннее суток, проверьте даты",
         "event_no_calendar": "Календарь {calendar} не найден",
+        "event_no_travel_time": "{where}: нет «{value}», для выезда взято время в пути по умолчанию",
+        "event_not_duration": "{where}: «{value}» — не длительность вида 00:40:00, для выезда взято время в пути по умолчанию",
     },
 }
 

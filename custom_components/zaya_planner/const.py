@@ -186,3 +186,17 @@ ATTR_ONLY_FUTURE: Final = "only_future"
 # The time of an event is its start minus the duration in this attribute
 ATTR_SUBTRACT: Final = "subtract"
 ATTR_EVENTS: Final = "events"
+
+
+# ---------------------------------------------------------------- departures
+
+# “Add departure” on the integration page: a subentry with a timestamp sensor
+SUBENTRY_DEPARTURE: Final = "departure"
+CONF_NAME: Final = "name"
+CONF_EDGE: Final = "edge"
+CONF_TRAVEL_KEY: Final = "travel_key"
+CONF_DEFAULT_TRAVEL: Final = "default_travel"
+CONF_FIRST_OF_DAY: Final = "first_of_day"
+EDGE_START: Final = "start"
+EDGE_END: Final = "end"
+DEFAULT_TRAVEL: Final = timedelta(minutes=30)

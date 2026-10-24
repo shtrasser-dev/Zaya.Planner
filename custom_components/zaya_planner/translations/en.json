@@ -41,6 +41,62 @@
       "invalid_key": "A key cannot have “:” or start with “#”."
     }
   },
+  "config_subentries": {
+    "departure": {
+      "initiate_flow": {
+        "user": "Add departure",
+        "reconfigure": "Change departure"
+      },
+      "entry_type": "Departure",
+      "step": {
+        "user": {
+          "title": "Departure",
+          "description": "When to leave for the next event with the tags. For example, “Leaf departure”: the first event of the day with #leaf, its start minus the travel time.",
+          "data": {
+            "name": "Name",
+            "tags": "Events with tags",
+            "edge": "Leave",
+            "travel_key": "Travel time from key",
+            "default_travel": "If the event has none",
+            "first_of_day": "Only the first of the day"
+          },
+          "data_description": {
+            "name": "The name of the sensor, e.g. “Leaf departure” → sensor.leaf_departure.",
+            "tags": "The event has all these tags (from the dictionary in the integration settings).",
+            "travel_key": "The key whose value in the event is the travel time, e.g. “Travel: 00:40:00”. Empty: always the time below.",
+            "default_travel": "Travel time when the event does not say it; such events are listed in “Errors in events”.",
+            "first_of_day": "After the first departure of a day, the next one is on another day."
+          }
+        },
+        "reconfigure": {
+          "title": "Change departure",
+          "description": "When to leave for the next event with the tags. For example, “Leaf departure”: the first event of the day with #leaf, its start minus the travel time.",
+          "data": {
+            "name": "Name",
+            "tags": "Events with tags",
+            "edge": "Leave",
+            "travel_key": "Travel time from key",
+            "default_travel": "If the event has none",
+            "first_of_day": "Only the first of the day"
+          },
+          "data_description": {
+            "name": "The name of the sensor, e.g. “Leaf departure” → sensor.leaf_departure.",
+            "tags": "The event has all these tags (from the dictionary in the integration settings).",
+            "travel_key": "The key whose value in the event is the travel time, e.g. “Travel: 00:40:00”. Empty: always the time below.",
+            "default_travel": "Travel time when the event does not say it; such events are listed in “Errors in events”.",
+            "first_of_day": "After the first departure of a day, the next one is on another day."
+          }
+        }
+      },
+      "error": {
+        "no_name": "Give the departure a name.",
+        "no_tags": "Choose at least one tag."
+      },
+      "abort": {
+        "reconfigure_successful": "The departure is changed."
+      }
+    }
+  },
   "entity": {
     "calendar": {
       "plans": {
@@ -83,6 +139,12 @@
       "options": {
         "on": "Turn on",
         "off": "Turn off"
+      }
+    },
+    "edge": {
+      "options": {
+        "start": "for the start of the event",
+        "end": "for the end of the event"
       }
     }
   },

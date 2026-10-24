@@ -11,15 +11,24 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
+    ConfigSubentryFlow,
     OptionsFlow,
+    SubentryFlowResult,
 )
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    BooleanSelector,
+    DurationSelector,
+    DurationSelectorConfig,
     EntitySelector,
     EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
 )
@@ -27,16 +36,25 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_ACTION_PREFIX,
     CONF_CALENDARS,
+    CONF_DEFAULT_TRAVEL,
+    CONF_EDGE,
+    CONF_FIRST_OF_DAY,
     CONF_KEYS,
     CONF_LATENESS_HOURS,
+    CONF_NAME,
     CONF_NOTIFY_ACTION,
     CONF_RETENTION_DAYS,
     CONF_TAGS,
+    CONF_TRAVEL_KEY,
     DEFAULT_ACTION_PREFIX,
     DEFAULT_LATENESS_HOURS,
     DEFAULT_NOTIFY_ACTION,
     DEFAULT_RETENTION_DAYS,
+    DEFAULT_TRAVEL,
     DOMAIN,
+    EDGE_END,
+    EDGE_START,
+    SUBENTRY_DEPARTURE,
 )
 from .description import norm
 
@@ -136,6 +154,15 @@ class ZayaPlannerConfigFlow(ConfigFlow, domain=DOMAIN):
         """Return the options flow."""
         return ZayaPlannerOptionsFlow()
 
+    @classmethod
+    @callback
+    @override
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        """Departures are added as subentries (“Add departure”)."""
+        return {SUBENTRY_DEPARTURE: DepartureSubentryFlow}
+
 
 class ZayaPlannerOptionsFlow(OptionsFlow):
     """Change the settings of Zaya Planner."""
@@ -169,3 +196,105 @@ class ZayaPlannerOptionsFlow(OptionsFlow):
             step_id="init", data_schema=_options_schema(options), errors=errors
         )
 
+
+
+# ---------------------------------------------------------------- departures
+
+
+def _departure_schema(entry: ConfigEntry) -> probatio.Schema:
+    """Which events, which of their ends, how long the way takes."""
+    default_travel = int(DEFAULT_TRAVEL.total_seconds()) // 60
+    return probatio.Schema(
+        {
+            probatio.Required(CONF_NAME): TextSelector(),
+            # Only words of the dictionary can be chosen
+            probatio.Required(CONF_TAGS): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=tag, label=f"#{tag}")
+                        for tag in entry.options.get(CONF_TAGS, [])
+                    ],
+                    multiple=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            probatio.Required(CONF_EDGE, default=EDGE_START): SelectSelector(
+                SelectSelectorConfig(
+                    options=[EDGE_START, EDGE_END],
+                    translation_key="edge",
+                    mode=SelectSelectorMode.LIST,
+                )
+            ),
+            probatio.Optional(CONF_TRAVEL_KEY): SelectSelector(
+                SelectSelectorConfig(
+                    options=list(entry.options.get(CONF_KEYS, [])),
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            probatio.Required(
+                CONF_DEFAULT_TRAVEL,
+                default={"hours": default_travel // 60, "minutes": default_travel % 60},
+            ): DurationSelector(DurationSelectorConfig()),
+            probatio.Required(CONF_FIRST_OF_DAY, default=True): BooleanSelector(),
+        }
+    )
+
+
+def _departure_errors(data: dict[str, Any]) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    if not data.get(CONF_NAME, "").strip():
+        errors[CONF_NAME] = "no_name"
+    if not data.get(CONF_TAGS):
+        errors[CONF_TAGS] = "no_tags"
+    return errors
+
+
+def _departure_data(data: dict[str, Any]) -> dict[str, Any]:
+    data = {**data, CONF_NAME: data[CONF_NAME].strip()}
+    if not data.get(CONF_TRAVEL_KEY):
+        data.pop(CONF_TRAVEL_KEY, None)
+    return data
+
+
+class DepartureSubentryFlow(ConfigSubentryFlow):
+    """Add or change a departure."""
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Add a departure."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            errors = _departure_errors(user_input)
+            if not errors:
+                data = _departure_data(user_input)
+                return self.async_create_entry(title=data[CONF_NAME], data=data)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=self.add_suggested_values_to_schema(
+                _departure_schema(self._get_entry()), user_input or {}
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Change a departure."""
+        entry = self._get_entry()
+        subentry = self._get_reconfigure_subentry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            errors = _departure_errors(user_input)
+            if not errors:
+                data = _departure_data(user_input)
+                return self.async_update_and_abort(
+                    entry, subentry, title=data[CONF_NAME], data=data
+                )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                _departure_schema(entry), user_input or dict(subentry.data)
+            ),
+            errors=errors,
+        )

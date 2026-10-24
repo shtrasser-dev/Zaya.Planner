@@ -127,7 +127,21 @@ are not found. A mistake repeated in a series is one error; a new error is notif
 
 The device trigger “Zaya Planner: time to plan” fires after Home Assistant starts, when automations
 are saved, **when an event of a chosen calendar changes**, when a plan ends, and every 15 minutes.
-Automations may add triggers of their own (a snow sensor changed).
+Automations may add triggers of their own (a snow sensor changed). Also when a departure passes
+(3.7), and once the calendars are first read if there are departures.
+
+### 3.7 Departures (2026-10-24)
+
+“Minus attribute” in a step form was hard to read. Instead, a departure is made once, as a form:
+*Add departure* on the integration page (a subentry; a helper of its own would need a second
+integration, and HACS installs one per repository). Fields: name, events with tags (from the
+dictionary, all of them), leave for the start or the end, travel time from a key (optional), the
+travel time when an event has none (30 minutes), only the first of the day (on).
+
+It is a timestamp sensor named by its name: the next departure is the event edge minus the travel
+time; all-day events are left out; nothing in 8 days: unknown. Events without a travel time, or
+with one that is not a duration, go to “Errors in events”. Automations use it as “Time of” in
+“Turn on for a while” with offsets (−120 and −30 for the Leaf).
 
 ## 4. Plans
 

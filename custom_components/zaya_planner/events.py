@@ -26,7 +26,9 @@ from .const import (
     EVENTS_REFRESH_INTERVAL,
     LONGEST_TIMED_EVENT,
     SIGNAL_EVENTS_UPDATED,
+    SUBENTRY_DEPARTURE,
 )
+from .departures import Departure, DepartureSpec, calculate
 from .description import Dictionary, Filter, Reading, by_start, first_of_each_day
 from .messages import message
 
@@ -69,7 +71,8 @@ class FoundEvent:
 class EventError:
     """Something wrong in an event (or a calendar) of the chosen calendars."""
 
-    # unknown_tag, empty_value, too_long, no_calendar
+    # unknown_tag, empty_value, too_long, no_calendar; of a departure:
+    # no_travel_time, not_duration
     code: str
     calendar: str
     summary: str = ""
@@ -119,6 +122,13 @@ class EventReader:
             entry.options.get(CONF_TAGS, []), entry.options.get(CONF_KEYS, [])
         )
         self.errors: list[EventError] = []
+        # Departures added on the integration page, by subentry
+        self.departure_specs: dict[str, DepartureSpec] = {
+            subentry_id: DepartureSpec.from_data(subentry.data)
+            for subentry_id, subentry in entry.subentries.items()
+            if subentry.subentry_type == SUBENTRY_DEPARTURE
+        }
+        self.departures: dict[str, list[Departure]] = {}
         # What the events looked like last time, to tell rules when they change
         self._fingerprint: tuple[Any, ...] | None = None
         self._subscribed: dict[str, tuple[CalendarEntity, CALLBACK_TYPE]] = {}
@@ -270,6 +280,20 @@ class EventReader:
                         EventError("too_long", event.calendar, event.summary, _day(event.start))
                     )
 
+        for subentry_id, spec in self.departure_specs.items():
+            departures, problems = calculate(spec, events, dt_util.parse_duration)
+            self.departures[subentry_id] = departures
+            errors.extend(
+                EventError(
+                    problem.code,
+                    problem.event.calendar,
+                    problem.event.summary,
+                    _day(problem.event.start),
+                    problem.value,
+                )
+                for problem in problems
+            )
+
         fingerprint = tuple(
             (e.calendar, e.summary, e.start, e.end, e.description) for e in events
         )
@@ -293,8 +317,9 @@ class EventReader:
                 message(self.hass, "notify_title_event_errors"),
                 "\n".join(self.describe(error) for error in new),
             )
-        self._first_read = False
-        if changed:
+        first_read, self._first_read = self._first_read, False
+        # Departures are known once the calendars are read the first time
+        if changed or (first_read and self.departure_specs):
             # Rules plan again when the calendars change
             self.entry.runtime_data.time_to_plan.async_fire()
 

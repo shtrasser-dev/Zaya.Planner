@@ -245,3 +245,59 @@ async def test_tasks_and_moments_from_older_version_are_removed(
     assert entities.async_get_entity_id("calendar", DOMAIN, f"{entry.entry_id}_schedule") is None
     assert hass.states.get("calendar.zaya_planner_plans") is not None
     assert not (storage / f"{DOMAIN}.tasks").exists()
+
+
+async def test_departure_flow(hass: HomeAssistant, config_entry: MockConfigEntry, frozen_now) -> None:
+    """A departure is added from the dictionary's words, changed, and has a sensor."""
+    config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={**DEFAULT_OPTIONS, CONF_TAGS: ["leaf"], CONF_KEYS: ["В пути"]},
+    )
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.subentries.async_init(
+        (config_entry.entry_id, "departure"), context={"source": SOURCE_USER}
+    )
+    assert result["type"] is FlowResultType.FORM
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"name": " ", "tags": [], "edge": "start"}
+    )
+    assert result["errors"] == {"name": "no_name", "tags": "no_tags"}
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {
+            "name": "Выезд Leaf",
+            "tags": ["leaf"],
+            "edge": "start",
+            "travel_key": "В пути",
+            "default_travel": {"hours": 0, "minutes": 30, "seconds": 0},
+            "first_of_day": True,
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    (subentry,) = config_entry.subentries.values()
+    assert subentry.title == "Выезд Leaf"
+    assert subentry.data["travel_key"] == "В пути"
+    # No calendars, no events: nothing to leave for
+    assert hass.states.get("sensor.vyezd_leaf").state == "unknown"
+
+    result = await config_entry.start_subentry_reconfigure_flow(hass, subentry.subentry_id)
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {
+            "name": "Выезд Leaf",
+            "tags": ["leaf"],
+            "edge": "end",
+            "default_travel": {"hours": 0, "minutes": 20, "seconds": 0},
+            "first_of_day": False,
+        },
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    subentry = config_entry.subentries[subentry.subentry_id]
+    assert subentry.data["edge"] == "end"
+    assert "travel_key" not in subentry.data
