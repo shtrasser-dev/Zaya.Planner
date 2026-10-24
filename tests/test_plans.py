@@ -210,7 +210,7 @@ async def test_owner_is_who_started_the_run(
     hass.bus.async_fire("automation_triggered", {"entity_id": "automation.charging"}, context=context)
     # A planning module called by it runs in the same context
     hass.bus.async_fire("script_started", {"entity_id": "script.plan_charging"}, context=context)
-    await hass.async_block_till_done()
+    # The run goes on at once, before the events are handled
     await hass.services.async_call(
         "zaya_planner", "add_step", LIGHTS[0], blocking=True, context=context
     )

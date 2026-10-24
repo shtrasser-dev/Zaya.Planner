@@ -6,6 +6,7 @@ Steps: ensure_state (turn on/off and confirm). Calendars: find_events.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -250,9 +251,15 @@ async def _async_step(hass: HomeAssistant, data: dict[str, Any]) -> Step | None:
     return Step(at=at + timedelta(minutes=data[ATTR_OFFSET]), action=action, data=step_data)
 
 
-def _owner(call: ServiceCall) -> str:
+async def _async_owner(call: ServiceCall) -> str:
     """The owner given, or the automation or script that started this run."""
-    owner = call.data.get(ATTR_OWNER) or owner_of(call.hass, call.context)
+    if owner := call.data.get(ATTR_OWNER):
+        return owner
+    if (owner := owner_of(call.hass, call.context)) is None:
+        # A run starts at once, before the event that tells who started it is
+        # handled: let it be handled
+        await asyncio.sleep(0)
+        owner = owner_of(call.hass, call.context)
     if not owner:
         raise _error("owner_unknown")
     return owner
@@ -270,7 +277,7 @@ def _drafts(hass: HomeAssistant) -> dict[tuple[str, str], tuple[datetime, list[S
 async def _async_add_step(call: ServiceCall) -> None:
     if (step := await _async_step(call.hass, dict(call.data))) is None:
         return
-    key = (_owner(call), call.context.id)
+    key = (await _async_owner(call), call.context.id)
     created, steps = _drafts(call.hass).get(key, (dt_util.utcnow(), []))
     _drafts(call.hass)[key] = (created, [*steps, step])
 
@@ -278,7 +285,7 @@ async def _async_add_step(call: ServiceCall) -> None:
 async def _async_set_plan(call: ServiceCall) -> ServiceResponse:
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
-    owner = _owner(call)
+    owner = await _async_owner(call)
     force = call.data[ATTR_FORCE]
     # The steps added in this run (also by scripts it called), then those given here
     _, drafted = _drafts(hass).pop((owner, call.context.id), (None, []))
@@ -312,7 +319,9 @@ async def _async_set_plan(call: ServiceCall) -> ServiceResponse:
 async def _async_cancel_plan(call: ServiceCall) -> ServiceResponse:
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
-    cancelled, result = await manager.async_cancel(_owner(call), force=call.data[ATTR_FORCE])
+    cancelled, result = await manager.async_cancel(
+        await _async_owner(call), force=call.data[ATTR_FORCE]
+    )
     return {"result": str(result), ATTR_PLANS: [plan_info(hass, plan) for plan in cancelled]}
 
 
