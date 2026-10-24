@@ -31,7 +31,6 @@ Requires Home Assistant 2026.10 or newer.
 | Setting | Default | Meaning |
 |---|---|---|
 | Lateness of the first step | 5 h | A plan whose first step cannot start this late (e.g. Home Assistant was off) fails |
-| Time to fix | 10 min | A plan freezes no sooner than this after it last changed: time to undo a mistake |
 | Allowed step scripts | `script.step_` | Scripts whose entity id starts with this prefix can be steps (besides the built-in `zaya_planner.ensure_state`) |
 | Keep finished plans | 3 days | Older finished plans are removed |
 | Notifications | empty | Action for notifications about failed plans and errors in events, e.g. `notify.mobile_app_phone` or a script with `title` and `message` fields. Empty: a notification in Home Assistant |
@@ -68,7 +67,7 @@ actions:
     data: { event: "#leaf #take_there", subtract: Travel, offset: -30,
             devices: [switch.leaf_charger], state: "off" }
   - action: zaya_planner.set_plan
-    data: { summary: Leaf charging, freeze_at: "23:00", display: steps,
+    data: { summary: Leaf charging, tags: [night], display: steps,
             on_failure: script.leaf_charging_failed }
 ```
 
@@ -81,8 +80,9 @@ module**: a script with fields that the automation calls, as a form. A module th
 plan whoever calls it sets `owner: "{{ this.entity_id }}"`; field defaults of a script apply in
 the form only, so templates use `{{ margin | default(30) }}`.
 
-In the evening the plan “Leaf charging 04:50–06:20” is on the **Plans** calendar; at 23:00 it is
-frozen (❄️) and no automation can change or cancel it any more. If the charger does not answer,
+In the evening the plan “Leaf charging 04:50–06:20” is on the **Plans** calendar; at 22:00 an
+automation “Freeze for the night” freezes the `#night` plans (❄️), and no automation can change or
+cancel them any more. If the charger does not answer,
 the plan fails and `script.leaf_charging_failed` runs: turn the charger off, notify, plan again —
 whatever you write there.
 
@@ -143,6 +143,24 @@ plan**, which it may change, plus plans that are already frozen or running.
 
 ### Making a plan
 
+**`zaya_planner.plan_window`** “Turn on for a while” — a whole plan in one action: **Devices**
+(one or more), **Start** and **End** (times of entities, e.g. Sun “Next sunset” / “Next sunrise”,
+each with an offset in minutes); under *More*: name (default: the devices' names), tags, how it
+is shown (by steps by default). If the end is before the start (e.g. at night), nothing is
+planned (`no_window`).
+
+```yaml
+- action: zaya_planner.plan_window
+  data:
+    devices: [switch.yard_lights]
+    start_entity: sensor.sun_next_setting
+    end_entity: sensor.sun_next_rising
+    tags: [night]
+```
+
+For other plans, the building blocks:
+
+
 - **`zaya_planner.add_step`**: adds a step to the plan being made **in this run**. Its time is one
   of: **Time of** an entity (`at_entity`: Sun “Next sunset”, a timestamp sensor, a date-and-time
   helper), the **time of an event** (`event` filter, `subtract` an attribute: the next fitting event
@@ -150,7 +168,7 @@ plan**, which it may change, plus plans that are already frozen or running.
   (minus: earlier). What: **Devices** + **Turn on / Turn off**, or a step script (`action` +
   `data`). Without a time (no such event, the sensor shows none) the step is left out. Steps may
   be added in conditions and loops, also by scripts the automation calls.
-- **`zaya_planner.set_plan`** (`owner`, `summary`, `freeze_at` or `freeze_before`, `on_failure`,
+- **`zaya_planner.set_plan`** (`owner`, `summary`, `tags`, `on_failure`,
   `display`, optionally `steps` as a list for YAML, `force`): makes the steps of this run the
   owner's next plan, replacing the one there was. **With no steps it cancels the next plan.**
   `display`: on the calendar as one event from the first step to the last (`span`), or a short
@@ -172,15 +190,17 @@ Steps must be in time order.
 
 ### Freezing
 
-“What you saw in the evening happens at night.” `set_plan` sets when the plan freezes:
+“What you saw in the evening happens at night.” A frozen plan cannot be changed or cancelled by
+automations; attempts are written to the **logbook** once (no notification). A plan is frozen:
 
-- `freeze_at`: a time of day — the last such time before the first step (`"23:00"`);
-- `freeze_before`: minutes before the first step;
-- neither: when the first step is due.
+- by **`zaya_planner.freeze_plans`** (`tags`, `within_hours`): the planned plans with any of the
+  tags (empty: all) that start within the hours given — e.g. an automation at 22:00 freezes the
+  plans tagged `#night` that start within 12 hours;
+- always, when its first step is due: what has started is carried through.
 
-A plan never freezes sooner than **Time to fix** after it last changed: a mistake at 01:00 can
-still be undone by 01:10. Attempts of automations to change or cancel a frozen plan change
-nothing and are written to the **logbook** once (no notification).
+**`zaya_planner.unfreeze_plans`** (`tags`) unfreezes the frozen plans that have not started.
+**Tags** of a plan are given by the action that makes it (`tags`, from the dictionary) and are
+shown in its calendar event.
 
 **A person** can still cancel or move a plan: delete or move its event on the **Plans** calendar
 (Home Assistant asks to confirm a deletion), or call `cancel_plan` / `set_plan` with `force: true`.

@@ -64,7 +64,7 @@ script:
         data: { owner: "{{ this.entity_id }}", at: "{{ off_at }}",
                 devices: [switch.leaf_charger], state: "off" }
       - action: zaya_planner.set_plan
-        data: { owner: "{{ this.entity_id }}", summary: Зарядка Leaf, freeze_at: "23:00" }
+        data: { owner: "{{ this.entity_id }}", summary: Зарядка Leaf, tags: [ночь] }
 ```
 
 **Automation** (visual editor): trigger “Zaya Planner: time to plan”; find the first `#leaf` event;
@@ -144,7 +144,7 @@ plans that are already frozen or running.
 ### 4.2 Statuses
 
 ```
-planned ──(freeze time)──▶ frozen ──(first step due)──▶ running ──▶ done
+planned ──(freeze_plans)──▶ frozen ──(first step due)──▶ running ──▶ done
    │                                                       │
    └──(cancel_plan, set_plan without steps)──▶ cancelled   └──(any step not done)──▶ failed
 ```
@@ -197,17 +197,28 @@ Rules: steps must be in time order; the next plan must start after the owner's l
 running plan ends. So “lights from sunset to sunrise” needs no checks in the automation: while
 tonight's plan runs, planning tonight again is answered `overlaps` quietly.
 
-### 4.4 Freezing
+### 4.4 Freezing (changed 2026-10-24)
 
-A plan is frozen at its **freeze time**, set by `set_plan`:
+Freezing is an action, not a setting of each plan:
 
-- `freeze_at`: a time of day, meaning the last such time before the first step
-  (“23:00” for a 04:50 step: 23:00 the evening before);
-- or `freeze_before`: minutes before the first step.
+- **`freeze_plans`** (`tags`, `within_hours`): freezes the planned plans with any of the tags
+  (none: all) that start within the hours given. Usually an automation at 22:00: “freeze the
+  `#night` plans that start within 12 hours”. What appears later (while you sleep) you have not
+  seen, so it is not frozen.
+- **`unfreeze_plans`** (`tags`): the frozen plans that have not started become planned again.
+- A plan is always frozen when its first step is due: what has started is carried through.
 
-But never earlier than **“Time to fix”** (an option, 10 minutes by default) after the plan last
-changed: a mistake at 01:00 can still be undone by 01:10. A plan without a freeze time is frozen
-when its first step is due. A plan made after its freeze time is frozen “Time to fix” later.
+Plans have **tags** (from the dictionary), given by the action that makes them and shown in the
+calendar event. The per-plan `freeze_at` / `freeze_before` and the option “Time to fix” are gone.
+
+### 4.4.1 Convenience actions (2026-10-24)
+
+One universal “add step” form was too heavy. Plans are made by actions with few, plain fields;
+they are added one by one, when needed. The first: **`plan_window`** “Turn on for a while” —
+devices, start and end as times of entities plus minutes, name, tags; a whole plan in one action;
+no window (an end before its start) is not an error. `add_step` / `set_plan` stay for complex
+plans. Next candidates: “turn on by a deadline” (charging), “plan a trip” (departure from the
+first event of a day, travel time from an attribute), “time of a plan” as a time source.
 
 ### 4.5 Conflicts
 
@@ -242,7 +253,7 @@ nothing.
 
 ```yaml
 - action: zaya_planner.set_plan
-  data: { owner: "{{ this.entity_id }}", summary: Зарядка Leaf, freeze_at: "23:00",
+  data: { owner: "{{ this.entity_id }}", summary: Зарядка Leaf, tags: [ночь],
           on_failure: script.leaf_charging_failed }
 ```
 
@@ -271,13 +282,13 @@ be run by hand from the script page, and may return an answer.
 | What | Code | Russian |
 |---|---|---|
 | Actions | `add_step`, `set_plan`, `cancel_plan`, `get_plans`, `find_events`, `ensure_state` | Добавить шаг, Поставить план, Отменить план, Получить планы, Найти события, Включить или выключить и проверить |
-| Plan fields | `owner`, `summary`, `steps`, `freeze_at`, `freeze_before`, `on_failure`, `force` | Владелец, Название, Шаги, Заморозить в, Заморозить за, При сбое, Вручную |
+| Plan fields | `owner`, `summary`, `steps`, `tags`, `on_failure`, `force` | Владелец, Название, Шаги, Теги, При сбое, Вручную |
 | Step fields | `at`, `devices`, `state`, `action`, `data` | Когда, Устройства, Состояние, Действие, Данные |
 | Calendar | `calendar.zaya_planner_plans` | Планы |
 | Sensors | `sensor.zaya_planner_next_step`, `sensor.zaya_planner_failed_plans`, `sensor.zaya_planner_plans`, `sensor.zaya_planner_event_errors` | Следующий шаг, Сбойные планы, Планы, Ошибки в событиях |
 | Events | `zaya_planner_plan_done`, `zaya_planner_plan_failed` | — |
 | Trigger | `time_to_plan` | Пора планировать |
-| Options | lateness, time to fix, retention, notifications, allowed actions, calendars, tags, keys | Допустимое опоздание первого шага, Время на исправление, Хранить завершённые планы, Уведомления, Разрешённые действия, Календари, Теги, Ключи |
+| Options | lateness, retention, notifications, allowed actions, calendars, tags, keys | Допустимое опоздание первого шага, Хранить завершённые планы, Уведомления, Разрешённые действия, Календари, Теги, Ключи |
 
 The word “task” goes; there are plans and steps. Statuses `skipped` and `done_with_errors` do not exist: a plan is done or failed.
 
