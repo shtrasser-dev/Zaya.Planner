@@ -80,9 +80,13 @@ ATTR_FORCE: Final = "force"
 ATTR_DISPLAY: Final = "display"
 DISPLAY_SPAN: Final = "span"
 DISPLAY_STEPS: Final = "steps"
-# The time of a step moved by minutes: before (earlier) or after (later)
-ATTR_BEFORE: Final = "before"
-ATTR_AFTER: Final = "after"
+# Where the time of a step comes from: a date and time (at), the time an entity
+# shows (at_entity), or the next event of the chosen calendars that fits a
+# filter (event, minus the duration in the attribute `subtract`); then moved by
+# `offset` minutes (minus: earlier)
+ATTR_AT_ENTITY: Final = "at_entity"
+ATTR_EVENT: Final = "event"
+ATTR_OFFSET: Final = "offset"
 ATTR_STATUS: Final = "status"
 ATTR_PLANS: Final = "plans"
 ATTR_ENTITY_ID: Final = "entity_id"

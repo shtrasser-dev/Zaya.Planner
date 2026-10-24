@@ -80,36 +80,46 @@
         "span": "One event",
         "steps": "Each step"
       }
+    },
+    "step_state": {
+      "options": {
+        "on": "Turn on",
+        "off": "Turn off"
+      }
     }
   },
   "services": {
     "add_step": {
       "name": "Add step",
-      "description": "Adds a step to the plan being made in this run. Call “Set plan” after the steps.",
+      "description": "Adds a step to the plan being made in this run. The time is one of: the time of an entity, the time of an event, a date and time; without a time the step is left out. Call “Set plan” after the steps.",
       "fields": {
-        "owner": {
-          "name": "Owner",
-          "description": "Usually not needed: the automation or script that started this run. Shown in advanced mode."
+        "at_entity": {
+          "name": "Time of",
+          "description": "The time an entity shows: Sun “Next sunset”, a timestamp sensor, a date-and-time helper."
+        },
+        "event": {
+          "name": "Event",
+          "description": "The next event of the chosen calendars that fits this filter: #tag, Key: value, Key."
+        },
+        "subtract": {
+          "name": "Minus attribute",
+          "description": "A key whose value is a duration (Travel: 40:00): the time is the event's start minus it."
         },
         "at": {
-          "name": "When",
-          "description": "When the step runs. Empty: the step is left out (e.g. there is no departure)."
+          "name": "Date and time",
+          "description": "A date and time, or a template."
         },
-        "before": {
-          "name": "Before",
-          "description": "Minutes earlier than “When”."
-        },
-        "after": {
-          "name": "After",
-          "description": "Minutes later than “When”."
+        "offset": {
+          "name": "Offset",
+          "description": "Minutes later; minus: earlier (−30: half an hour before)."
         },
         "devices": {
           "name": "Devices",
           "description": "Turn these devices on or off and wait until they confirm."
         },
         "state": {
-          "name": "State",
-          "description": "on or off"
+          "name": "Action",
+          "description": "Turn on or turn off."
         },
         "action": {
           "name": "Script",
@@ -118,6 +128,17 @@
         "data": {
           "name": "Data",
           "description": "Fields for the script."
+        }
+      },
+      "sections": {
+        "event_time": {
+          "name": "Time of an event"
+        },
+        "date_time": {
+          "name": "Date and time"
+        },
+        "step_script": {
+          "name": "Script instead of devices"
         }
       }
     },
@@ -266,6 +287,9 @@
     },
     "owner_unknown": {
       "message": "Whose plan is it? Called outside an automation or script, give the owner."
+    },
+    "one_time_source": {
+      "message": "Give the time of a step one way: an entity, an event, or a date and time."
     }
   },
   "device_automation": {

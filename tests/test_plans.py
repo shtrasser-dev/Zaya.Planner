@@ -94,12 +94,12 @@ async def test_wrong_plans(
 
 
 async def test_step_times(hass: HomeAssistant, setup_entry: MockConfigEntry) -> None:
-    """Minutes before or after a time; a step without a time is left out."""
+    """Minutes earlier or later; a step without a time is left out."""
     response = await build_plan(
         hass,
         [
-            {**step("2026-10-21T14:00:00+00:00"), "before": "90"},
-            {**step("2026-10-21T14:00:00+00:00", state="off"), "before": 30, "after": 10},
+            {**step("2026-10-21T14:00:00+00:00"), "offset": "-90"},
+            {**step("2026-10-21T14:00:00+00:00", state="off"), "offset": -20},
             {**step("", state="off")},
         ],
     )
@@ -110,6 +110,32 @@ async def test_step_times(hass: HomeAssistant, setup_entry: MockConfigEntry) -> 
 
     # A module called without a departure adds no steps: its plan is cancelled
     assert (await build_plan(hass, [step("")]))["result"] == "cancelled"
+
+
+async def test_time_of_an_entity(hass: HomeAssistant, setup_entry: MockConfigEntry) -> None:
+    """The time a sensor shows (the next sunset), or a time-only helper; none: no step."""
+    hass.states.async_set("sensor.sun_next_setting", "2026-10-21T14:51:00+00:00")
+    hass.states.async_set("input_datetime.wake", "06:40:00")
+    hass.states.async_set("sensor.unknown_time", "unknown")
+    response = await build_plan(
+        hass,
+        [
+            {"at_entity": "sensor.sun_next_setting", "devices": ["switch.light"], "state": "on"},
+            {"at_entity": "input_datetime.wake", "offset": 10, "devices": ["switch.light"], "state": "off"},
+            {"at_entity": "sensor.unknown_time", "devices": ["switch.light"], "state": "off"},
+        ],
+    )
+    assert [s["at"] for s in response["plan"]["steps"]] == [
+        "2026-10-21T17:51:00+03:00",
+        "2026-10-22T06:50:00+03:00",
+    ]
+
+    with pytest.raises(ServiceValidationError) as err:
+        await build_plan(
+            hass,
+            [{**step("2026-10-21T14:00:00+00:00"), "at_entity": "sensor.sun_next_setting"}],
+        )
+    assert err.value.translation_key == "one_time_source"
 
 
 async def test_past_plan_is_not_made(hass: HomeAssistant, setup_entry: MockConfigEntry) -> None:

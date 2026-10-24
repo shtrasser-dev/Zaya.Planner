@@ -1,24 +1,34 @@
 add_step:
   fields:
-    owner:
-      advanced: true
-      example: "{{ this.entity_id }}"
+    at_entity:
       selector:
-        text:
-    at:
-      selector:
-        datetime:
-    before:
+        entity:
+          filter:
+            - domain: sensor
+              device_class: timestamp
+            - domain: input_datetime
+    event_time:
+      collapsed: true
+      fields:
+        event:
+          example: "#leaf #take_there"
+          selector:
+            text:
+        subtract:
+          example: Travel
+          selector:
+            text:
+    date_time:
+      collapsed: true
+      fields:
+        at:
+          selector:
+            datetime:
+    offset:
+      default: 0
       selector:
         number:
-          min: 0
-          max: 1440
-          unit_of_measurement: min
-          mode: box
-    after:
-      selector:
-        number:
-          min: 0
+          min: -1440
           max: 1440
           unit_of_measurement: min
           mode: box
@@ -31,19 +41,23 @@ add_step:
     state:
       selector:
         select:
+          translation_key: step_state
           options:
             - "on"
             - "off"
-    action:
-      example: script.step_boiler_mode
-      selector:
-        entity:
-          filter:
-            domain: script
-    data:
-      example: '{"mode": "eco"}'
-      selector:
-        object:
+    step_script:
+      collapsed: true
+      fields:
+        action:
+          example: script.step_boiler_mode
+          selector:
+            entity:
+              filter:
+                domain: script
+        data:
+          example: '{"mode": "eco"}'
+          selector:
+            object:
 
 set_plan:
   fields:

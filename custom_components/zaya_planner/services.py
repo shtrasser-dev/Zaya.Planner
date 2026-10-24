@@ -11,6 +11,7 @@ from typing import Any
 
 import probatio
 
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import (
     HomeAssistant,
     ServiceCall,
@@ -24,21 +25,22 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_ACTION,
-    ATTR_AFTER,
     ATTR_AT,
-    ATTR_BEFORE,
+    ATTR_AT_ENTITY,
     ATTR_CALENDARS,
     ATTR_DATA,
     ATTR_DEVICES,
     ATTR_DISPLAY,
     ATTR_END,
     ATTR_ENTITY_ID,
+    ATTR_EVENT,
     ATTR_EVENTS,
     ATTR_FILTER,
     ATTR_FIRST_OF_DAY,
     ATTR_FORCE,
     ATTR_FREEZE_AT,
     ATTR_FREEZE_BEFORE,
+    ATTR_OFFSET,
     ATTR_ON_FAILURE,
     ATTR_ONLY_FUTURE,
     ATTR_OWNER,
@@ -76,11 +78,14 @@ from .store import as_aware
 DRAFTS = f"{DOMAIN}_drafts"
 
 STEP_FIELDS = {
-    # No time (empty): the step is left out, e.g. a module called without a departure
+    # When: one of a date and time, the time of an entity, the next fitting event.
+    # None (or empty): the step is left out, e.g. there is no departure
     probatio.Optional(ATTR_AT): probatio.Any(None, "", cv.datetime),
-    # Earlier or later than `at` by minutes
-    probatio.Optional(ATTR_BEFORE, default=0): probatio.Coerce(int),
-    probatio.Optional(ATTR_AFTER, default=0): probatio.Coerce(int),
+    probatio.Optional(ATTR_AT_ENTITY): probatio.Any(None, "", cv.entity_id),
+    probatio.Optional(ATTR_EVENT): probatio.Any(None, cv.string),
+    probatio.Optional(ATTR_SUBTRACT): probatio.Any(None, cv.string),
+    # Minutes later (plus) or earlier (minus)
+    probatio.Optional(ATTR_OFFSET, default=0): probatio.Coerce(int),
     # What: devices to turn on/off, or an action with data
     probatio.Optional(ATTR_DEVICES): cv.entity_ids,
     probatio.Optional(ATTR_STATE): probatio.In(["on", "off"]),
@@ -171,9 +176,54 @@ def _get_entry(hass: HomeAssistant) -> Any:
     return entries[0]
 
 
-def _step(hass: HomeAssistant, data: dict[str, Any]) -> Step | None:
+def _entity_time(hass: HomeAssistant, entity_id: str) -> datetime | None:
+    """Return the moment an entity shows: a timestamp, a date and time, or a time.
+
+    A time without a date (a time-only helper) means its next occurrence.
+    """
+    state = hass.states.get(entity_id)
+    if state is None or state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+        return None
+    if (moment := dt_util.parse_datetime(state.state)) is not None:
+        return as_aware(moment)
+    if (clock := dt_util.parse_time(state.state)) is not None:
+        now = dt_util.now()
+        moment = now.replace(
+            hour=clock.hour, minute=clock.minute, second=clock.second, microsecond=0
+        )
+        return as_aware(moment if moment > now else moment + timedelta(days=1))
+    return None
+
+
+async def _async_event_time(
+    hass: HomeAssistant, text: str, subtract: str | None
+) -> datetime | None:
+    """Return the time of the next event that fits the filter (minus the attribute)."""
+    reader = _get_entry(hass).runtime_data.events
+    event_filter = Filter.parse(text)
+    unknown = event_filter.unknown_words(reader.dictionary)
+    if subtract and reader.dictionary.key(subtract) is None:
+        unknown.append(subtract)
+    if unknown:
+        raise _error("unknown_filter_words", words=", ".join(unknown))
+    now = dt_util.utcnow()
+    events = await reader.async_find(
+        event_filter, now, now + EVENTS_HORIZON, only_future=True, subtract=subtract
+    )
+    if not events or (at := events[0].at) is None:
+        return None
+    if not isinstance(at, datetime):
+        # An all-day event: its day begins at midnight
+        at = datetime.combine(at, datetime.min.time())
+    return as_aware(at)
+
+
+async def _async_step(hass: HomeAssistant, data: dict[str, Any]) -> Step | None:
     """Return a step from action data (None without a time), or explain what is wrong."""
-    if not data.get(ATTR_AT):
+    sources = [key for key in (ATTR_AT, ATTR_AT_ENTITY, ATTR_EVENT) if data.get(key)]
+    if len(sources) > 1:
+        raise _error("one_time_source")
+    if not sources:
         return None
     entry = _get_entry(hass)
     if ATTR_DEVICES in data:
@@ -188,9 +238,16 @@ def _step(hass: HomeAssistant, data: dict[str, Any]) -> Step | None:
         # Only the built-in action and a named subset of scripts may be steps
         if action not in BUILTIN_ACTIONS and not action.startswith(prefix):
             raise _error("action_not_allowed", action=action, prefix=prefix)
-    at = as_aware(data[ATTR_AT]) - timedelta(minutes=data.get(ATTR_BEFORE, 0))
-    at += timedelta(minutes=data.get(ATTR_AFTER, 0))
-    return Step(at=at, action=action, data=step_data)
+    if sources[0] == ATTR_AT:
+        at: datetime | None = as_aware(data[ATTR_AT])
+    elif sources[0] == ATTR_AT_ENTITY:
+        at = _entity_time(hass, data[ATTR_AT_ENTITY])
+    else:
+        at = await _async_event_time(hass, data[ATTR_EVENT], data.get(ATTR_SUBTRACT))
+    if at is None:
+        # The entity shows no time, or there is no such event: no step
+        return None
+    return Step(at=at + timedelta(minutes=data[ATTR_OFFSET]), action=action, data=step_data)
 
 
 def _owner(call: ServiceCall) -> str:
@@ -211,7 +268,7 @@ def _drafts(hass: HomeAssistant) -> dict[tuple[str, str], tuple[datetime, list[S
 
 
 async def _async_add_step(call: ServiceCall) -> None:
-    if (step := _step(call.hass, dict(call.data))) is None:
+    if (step := await _async_step(call.hass, dict(call.data))) is None:
         return
     key = (_owner(call), call.context.id)
     created, steps = _drafts(call.hass).get(key, (dt_util.utcnow(), []))
@@ -224,9 +281,11 @@ async def _async_set_plan(call: ServiceCall) -> ServiceResponse:
     owner = _owner(call)
     force = call.data[ATTR_FORCE]
     # The steps added in this run (also by scripts it called), then those given here
-    _, steps = _drafts(hass).pop((owner, call.context.id), (None, []))
-    given = (_step(hass, dict(step)) for step in call.data.get(ATTR_STEPS, []))
-    steps = [*steps, *(step for step in given if step is not None)]
+    _, drafted = _drafts(hass).pop((owner, call.context.id), (None, []))
+    steps = list(drafted)
+    for item in call.data.get(ATTR_STEPS, []):
+        if (step := await _async_step(hass, dict(item))) is not None:
+            steps.append(step)
 
     if not steps:
         cancelled, result = await manager.async_cancel(owner, force=force)

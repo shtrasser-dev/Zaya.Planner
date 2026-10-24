@@ -26,7 +26,7 @@ from custom_components.zaya_planner.const import (
     EVENT_TIME_TO_PLAN,
 )
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -223,6 +223,41 @@ async def test_find_events(
     assert [e["summary"] for e in found] == ["School"]
     found = await find(hass, start="2026-10-23 00:00:00")
     assert [e["summary"] for e in found] == ["Trip", "Pool"]
+
+
+async def test_step_at_an_event(
+    hass: HomeAssistant,
+    calendars: dict[str, FakeCalendar],
+    setup_entry: MockConfigEntry,
+) -> None:
+    """A step at the next fitting event: its start minus the travel time, minus 30 minutes."""
+    data = {"owner": "automation.charging", "event": "#leaf #отвезти", "subtract": "В пути"}
+    context = Context()
+    await hass.services.async_call(
+        DOMAIN,
+        "add_step",
+        {**data, "offset": -30, "devices": ["switch.charger"], "state": "off"},
+        blocking=True,
+        context=context,
+    )
+    # No such event: no step
+    await hass.services.async_call(
+        DOMAIN,
+        "add_step",
+        {**data, "event": "#отвезти\nЕдут", "devices": ["switch.charger"], "state": "on"},
+        blocking=True,
+        context=context,
+    )
+    response = await hass.services.async_call(
+        DOMAIN,
+        "set_plan",
+        {"owner": "automation.charging"},
+        blocking=True,
+        return_response=True,
+        context=context,
+    )
+    # School at 8:00 (Moscow), 40 minutes away, 30 minutes to spare
+    assert [s["at"] for s in response["plan"]["steps"]] == ["2026-10-22T06:50:00+03:00"]
 
 
 @pytest.mark.parametrize(
