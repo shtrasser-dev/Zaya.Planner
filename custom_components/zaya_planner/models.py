@@ -21,12 +21,18 @@ def _dt_from_str(value: str | None) -> datetime | None:
 
 @dataclass(slots=True)
 class Step:
-    """One step of a plan: at a time, run an action with data."""
+    """One step of a plan: at a time, run an action with data.
+
+    A step with no action is a mark (“Departure — School”): a moment with a name,
+    done when it comes.
+    """
 
     at: datetime
-    # zaya_planner.ensure_state or an allowed script
+    # zaya_planner.ensure_state or an allowed script; empty: a mark
     action: str
     data: dict[str, Any] = field(default_factory=dict)
+    # The name of a mark
+    name: str = ""
     status: StepStatus = StepStatus.PLANNED
     attempts: int = 0
     last_error: str | None = None
@@ -38,13 +44,27 @@ class Step:
     notified: bool = False
 
     @property
+    def is_mark(self) -> bool:
+        """Return True if the step only marks a moment."""
+        return not self.action
+
+    @property
     def is_finished(self) -> bool:
         """Return True once the step is done, failed or cancelled."""
         return self.status in (StepStatus.DONE, StepStatus.FAILED, StepStatus.CANCELLED)
 
     def same_as(self, other: Step) -> bool:
         """Return True if both steps do the same thing at the same time."""
-        return (self.at, self.action, self.data) == (other.at, other.action, other.data)
+        return (self.at, self.action, self.data, self.name) == (
+            other.at,
+            other.action,
+            other.data,
+            other.name,
+        )
+
+    def copy(self) -> Step:
+        """Return a new step that does the same thing at the same time."""
+        return Step(at=self.at, action=self.action, data=dict(self.data), name=self.name)
 
     def as_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation."""
@@ -52,6 +72,7 @@ class Step:
             "at": _dt_to_str(self.at),
             "action": self.action,
             "data": self.data,
+            "name": self.name,
             "status": str(self.status),
             "attempts": self.attempts,
             "last_error": self.last_error,
@@ -69,6 +90,7 @@ class Step:
             at=_dt_from_str(data["at"]),  # type: ignore[arg-type]
             action=data["action"],
             data=data.get("data") or {},
+            name=data.get("name") or "",
             status=StepStatus(data.get("status", StepStatus.PLANNED)),
             attempts=data.get("attempts", 0),
             last_error=data.get("last_error"),
@@ -108,6 +130,10 @@ class Plan:
     reason: str | None = None
     # Attempts of automations to change it once frozen (for people to see)
     conflicts: list[str] = field(default_factory=list)
+    # The steps as its owner made them, before a person moved them (None: not moved)
+    origin: list[Step] | None = None
+    # A person moved or cancelled it: its owner does not make it again
+    by_person: bool = False
 
     @property
     def start(self) -> datetime:
@@ -118,6 +144,11 @@ class Plan:
     def end(self) -> datetime:
         """Return the time of the last step."""
         return self.steps[-1].at
+
+    @property
+    def planned_steps(self) -> list[Step]:
+        """Return the steps as its owner made them."""
+        return self.origin if self.origin is not None else self.steps
 
     @property
     def is_open(self) -> bool:
@@ -155,6 +186,8 @@ class Plan:
             "finished_at": _dt_to_str(self.finished_at),
             "reason": self.reason,
             "conflicts": self.conflicts,
+            "origin": [step.as_dict() for step in self.origin] if self.origin is not None else None,
+            "by_person": self.by_person,
         }
 
     @classmethod
@@ -175,4 +208,10 @@ class Plan:
             finished_at=_dt_from_str(data.get("finished_at")),
             reason=data.get("reason"),
             conflicts=list(data.get("conflicts") or []),
+            origin=(
+                [Step.from_dict(step) for step in data["origin"]]
+                if data.get("origin") is not None
+                else None
+            ),
+            by_person=data.get("by_person", False),
         )

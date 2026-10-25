@@ -63,6 +63,39 @@ plan_window:
                 - steps
                 - span
 
+plan_departures:
+  fields:
+    departure:
+      required: true
+      selector:
+        entity:
+          filter:
+            - integration: zaya_planner
+              domain: sensor
+              device_class: timestamp
+    summary:
+      example: Departure
+      selector:
+        text:
+    add_location:
+      required: true
+      default: true
+      selector:
+        boolean:
+    days:
+      required: true
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 7
+          mode: box
+    tags:
+      example: leaf
+      selector:
+        text:
+          multiple: true
+
 freeze_plans:
   fields:
     tags:

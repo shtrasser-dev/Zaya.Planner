@@ -38,6 +38,7 @@ from .const import (
     CONF_CALENDARS,
     CONF_DEFAULT_TRAVEL,
     CONF_EDGE,
+    CONF_EXCLUDE_TAGS,
     CONF_FIRST_OF_DAY,
     CONF_KEYS,
     CONF_LATENESS_HOURS,
@@ -204,18 +205,26 @@ class ZayaPlannerOptionsFlow(OptionsFlow):
 def _departure_schema(entry: ConfigEntry) -> probatio.Schema:
     """Which events, which of their ends, how long the way takes."""
     default_travel = int(DEFAULT_TRAVEL.total_seconds()) // 60
+    # Only words of the dictionary and the chosen calendars can be chosen
+    tags = SelectSelector(
+        SelectSelectorConfig(
+            options=[
+                SelectOptionDict(value=tag, label=f"#{tag}")
+                for tag in entry.options.get(CONF_TAGS, [])
+            ],
+            multiple=True,
+            mode=SelectSelectorMode.DROPDOWN,
+        )
+    )
+    calendars = list(entry.options.get(CONF_CALENDARS, []))
     return probatio.Schema(
         {
             probatio.Required(CONF_NAME): TextSelector(),
-            # Only words of the dictionary can be chosen
-            probatio.Required(CONF_TAGS): SelectSelector(
-                SelectSelectorConfig(
-                    options=[
-                        SelectOptionDict(value=tag, label=f"#{tag}")
-                        for tag in entry.options.get(CONF_TAGS, [])
-                    ],
-                    multiple=True,
-                    mode=SelectSelectorMode.DROPDOWN,
+            probatio.Required(CONF_TAGS): tags,
+            probatio.Optional(CONF_EXCLUDE_TAGS): tags,
+            probatio.Optional(CONF_CALENDARS): EntitySelector(
+                EntitySelectorConfig(
+                    domain="calendar", multiple=True, include_entities=calendars
                 )
             ),
             probatio.Required(CONF_EDGE, default=EDGE_START): SelectSelector(
@@ -251,8 +260,9 @@ def _departure_errors(data: dict[str, Any]) -> dict[str, str]:
 
 def _departure_data(data: dict[str, Any]) -> dict[str, Any]:
     data = {**data, CONF_NAME: data[CONF_NAME].strip()}
-    if not data.get(CONF_TRAVEL_KEY):
-        data.pop(CONF_TRAVEL_KEY, None)
+    for key in (CONF_TRAVEL_KEY, CONF_EXCLUDE_TAGS, CONF_CALENDARS):
+        if not data.get(key):
+            data.pop(key, None)
     return data
 
 

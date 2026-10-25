@@ -51,6 +51,7 @@ class FoundEvent:
     reading: Reading
     # The start, or the start minus the duration in an attribute (None: no such duration)
     at: date | datetime | None = None
+    location: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         """Return the event for an action response."""
@@ -61,6 +62,7 @@ class FoundEvent:
             "start": self.start.isoformat(),
             "end": self.end.isoformat(),
             "all_day": not isinstance(self.start, datetime),
+            "location": self.location,
             "tags": list(self.reading.tags),
             "attributes": dict(self.reading.attributes),
             "description": self.description,
@@ -228,6 +230,7 @@ class EventReader:
                         description=description,
                         reading=self.dictionary.read(description),
                         at=event_start,
+                        location=event.location or "",
                     )
                 )
         return sorted(found, key=by_start)

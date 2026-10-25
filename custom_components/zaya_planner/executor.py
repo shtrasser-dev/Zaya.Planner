@@ -166,7 +166,13 @@ class Executor:
         plan.updated_at = dt_util.utcnow()
         await self.manager.async_save()
 
-        ok, reason, response = await async_call_script(self.hass, step.action, dict(step.data))
+        if step.is_mark:
+            # A mark has nothing to do: the moment has come
+            ok, reason, response = True, "", None
+        else:
+            ok, reason, response = await async_call_script(
+                self.hass, step.action, dict(step.data)
+            )
 
         if plan.status != PlanStatus.RUNNING or step.status != StepStatus.RUNNING:
             # Cancelled while the action was running: leave it cancelled

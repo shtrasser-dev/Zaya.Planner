@@ -272,3 +272,44 @@ async def test_saving_scripts_is_time_to_plan(
 
     await move_to(hass, frozen_now, "2026-10-21T12:00:03+00:00")
     assert len(time_to_plan) == 1
+
+
+async def test_what_a_person_decided_stays(
+    hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now, hass_ws_client
+) -> None:
+    """Moved: frozen, not moved back; deleted: not made again; something else: made."""
+    uid = (await set_plan(hass, LIGHTS, summary="Lights"))["uid"]
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {
+            "type": "calendar/event/update",
+            "entity_id": CALENDAR,
+            "uid": uid,
+            "event": {
+                "summary": "Lights",
+                "dtstart": "2026-10-21T17:00:00+03:00",
+                "dtend": "2026-10-21T17:30:00+03:00",
+            },
+        }
+    )
+    assert (await client.receive_json())["success"]
+    # The automation plans the same as before: the plan stays where the person put it
+    await set_plan(hass, LIGHTS, summary="Lights")
+    plans = await get_plans(hass)
+    assert [(p["status"], p["start"]) for p in plans] == [
+        ("frozen", "2026-10-21T17:00:00+03:00")
+    ]
+    assert plans[0]["conflicts"] == []
+
+    # Deleted: the same is not made again
+    await client.send_json_auto_id(
+        {"type": "calendar/event/delete", "entity_id": CALENDAR, "uid": uid}
+    )
+    assert (await client.receive_json())["success"]
+    await set_plan(hass, LIGHTS, summary="Lights")
+    assert [p["status"] for p in await get_plans(hass)] == ["cancelled"]
+
+    # Something else is planned (the schedule changed): it is made
+    later = [step("2026-10-21T15:00:00+00:00"), step("2026-10-21T15:30:00+00:00", state="off")]
+    plan = await set_plan(hass, later, summary="Lights")
+    assert (plan["status"], plan["start"]) == ("planned", "2026-10-21T18:00:00+03:00")

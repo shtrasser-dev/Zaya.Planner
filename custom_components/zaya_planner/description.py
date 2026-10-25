@@ -6,8 +6,8 @@
 
 - `#word` anywhere is a tag; a line `Key: value` is an attribute when its key is
   in the user's dictionary; everything else is notes.
-- A filter is written the same way: `#tag` (the tag is there), `Key: value`
-  (the attribute has this value), `Key` (the attribute is there).
+- A filter is written the same way: `#tag` (the tag is there), `!#tag` (it is
+  not), `Key: value` (the attribute has this value), `Key` (the attribute is there).
 - Words are compared without letter case, with “ё” as “е”.
 
 The integration knows no words of its own: tags and keys come from the user's
@@ -146,30 +146,37 @@ class Filter:
     equals: tuple[tuple[str, str], ...] = ()
     # keys the event must have, any value
     present: tuple[str, ...] = ()
+    # tags the event must not have
+    excluded: tuple[str, ...] = ()
 
     @classmethod
     def parse(cls, text: str | None) -> Filter:
-        """Read a filter: `#tag`, `Key: value`, `Key`, one condition per line (tags may share one)."""
+        """Read a filter: `#tag`, `!#tag`, `Key: value`, `Key`, one condition per line (tags may share one)."""
         filter_tags: list[str] = []
+        excluded: list[str] = []
         equals: list[tuple[str, str]] = []
         present: list[str] = []
         for line in (text or "").splitlines():
             line = line.strip()
             if not line:
                 continue
-            if line.startswith("#"):
-                filter_tags.extend(tags(line))
+            if line.startswith(("#", "!#")):
+                for match in _TAG.finditer(line):
+                    negated = match.start() > 0 and line[match.start() - 1] == "!"
+                    (excluded if negated else filter_tags).append(match.group(1))
                 continue
             name, colon, value = line.partition(":")
             if colon and value.strip():
                 equals.append((name.strip(), value.strip()))
             else:
                 present.append(name.strip())
-        return cls(tuple(filter_tags), tuple(equals), tuple(present))
+        return cls(tuple(filter_tags), tuple(equals), tuple(present), tuple(excluded))
 
     def unknown_words(self, dictionary: Dictionary) -> list[str]:
         """Return the tags (with “#”) and keys of the filter not in the dictionary."""
-        unknown = [f"#{tag}" for tag in self.tags if dictionary.tag(tag) is None]
+        unknown = [
+            f"#{tag}" for tag in (*self.tags, *self.excluded) if dictionary.tag(tag) is None
+        ]
         keys = [key for key, _ in self.equals] + list(self.present)
         return unknown + [key for key in keys if dictionary.key(key) is None]
 
@@ -179,6 +186,7 @@ class Filter:
         attributes = {norm(key): value for key, value in reading.attributes.items()}
         return (
             all(norm(tag) in have_tags for tag in self.tags)
+            and not any(norm(tag) in have_tags for tag in self.excluded)
             and all(norm(key) in attributes for key in self.present)
             and all(
                 norm(key) in attributes and norm(attributes[norm(key)]) == norm(value)

@@ -75,6 +75,16 @@ def test_filter() -> None:
     assert not Filter.parse("Едут: Маша").matches(reading)
 
 
+def test_filter_without_tags() -> None:
+    """!#tag: the tag is not there."""
+    reading = WORDS.read("#leaf #отвезти")
+    assert Filter.parse("!#Забрать").matches(reading)
+    assert Filter.parse("#leaf !#забрать").matches(reading)
+    assert not Filter.parse("#leaf\n!#отвезти").matches(reading)
+    assert Filter.parse("#leaf !#забрать") == Filter(tags=("leaf",), excluded=("забрать",))
+    assert Filter.parse("!#лиф").unknown_words(WORDS) == ["#лиф"]
+
+
 def test_filter_words() -> None:
     """Words of a filter that are not in the dictionary."""
     event_filter = Filter.parse("#leaf #лиф\nВ пути: 00:40:00\nВпути")

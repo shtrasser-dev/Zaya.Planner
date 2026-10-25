@@ -20,7 +20,9 @@ def _name(hass: HomeAssistant, entity_id: str) -> str:
 
 
 def step_text(hass: HomeAssistant, step: Step) -> str:
-    """Return what a step does: “Leaf charger: on”, or the script and its data."""
+    """Return what a step does: “Leaf charger: on”, the script and its data, or a mark's name."""
+    if step.is_mark:
+        return step.name
     if step.action in BUILTIN_ACTIONS and ATTR_ENTITY_ID in step.data:
         names = ", ".join(_name(hass, e) for e in cv.ensure_list(step.data[ATTR_ENTITY_ID]))
         state = step.data.get(ATTR_STATE)

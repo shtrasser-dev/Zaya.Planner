@@ -13,8 +13,10 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, Protocol
 
 from .const import (
+    CONF_CALENDARS,
     CONF_DEFAULT_TRAVEL,
     CONF_EDGE,
+    CONF_EXCLUDE_TAGS,
     CONF_FIRST_OF_DAY,
     CONF_TAGS,
     CONF_TRAVEL_KEY,
@@ -42,6 +44,9 @@ class Event(Protocol):
     def end(self) -> Any: ...
 
     @property
+    def location(self) -> str: ...
+
+    @property
     def reading(self) -> Reading: ...
 
 
@@ -56,6 +61,10 @@ class DepartureSpec:
     """How a departure is worked out from events."""
 
     tags: tuple[str, ...]
+    # … and none of these
+    exclude_tags: tuple[str, ...] = ()
+    # Events of these calendars only (empty: all the chosen ones)
+    calendars: tuple[str, ...] = ()
     # Leave for the start of the event (take there) or for its end (pick up)
     edge: Edge = "start"
     # The travel time is the value of this key in the event (e.g. “Travel: 00:40:00”)
@@ -69,6 +78,8 @@ class DepartureSpec:
         """Return the spec of a departure from its subentry data."""
         return cls(
             tags=tuple(data.get(CONF_TAGS) or ()),
+            exclude_tags=tuple(data.get(CONF_EXCLUDE_TAGS) or ()),
+            calendars=tuple(data.get(CONF_CALENDARS) or ()),
             edge=data.get(CONF_EDGE, EDGE_START),
             travel_key=data.get(CONF_TRAVEL_KEY) or None,
             default_travel=(
@@ -110,11 +121,13 @@ def calculate(
 
     All-day events are left out: there is no time to leave for.
     """
-    event_filter = Filter(tags=spec.tags)
+    event_filter = Filter(tags=spec.tags, excluded=spec.exclude_tags)
     fitting = [
         event
         for event in events
-        if isinstance(event.start, datetime) and event_filter.matches(event.reading)
+        if isinstance(event.start, datetime)
+        and (not spec.calendars or event.calendar in spec.calendars)
+        and event_filter.matches(event.reading)
     ]
     if spec.first_of_day:
         fitting = first_of_each_day(fitting)

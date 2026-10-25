@@ -1,7 +1,8 @@
 """Calendar “Plans”: one event per plan, from its first step to its last.
 
 A person may delete an event (the plan is cancelled, even a frozen or running
-one) or move it (all steps of a plan that has not started move with it).
+one) or move it (all steps of a plan that has not started move with it, and it
+is frozen). What a person decided, its owner does not make again.
 """
 
 from __future__ import annotations

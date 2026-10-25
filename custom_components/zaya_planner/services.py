@@ -1,6 +1,7 @@
 """Actions (services) of Zaya Planner.
 
-Plans: add_step (to a draft of the current run), set_plan, cancel_plan, get_plans.
+Plans: add_step (to a draft of the current run), set_plan, cancel_plan, get_plans;
+plan_window and plan_departures make whole plans in one action.
 Steps: ensure_state (turn on/off and confirm). Calendars: find_events.
 """
 
@@ -21,15 +22,18 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_ACTION,
+    ATTR_ADD_LOCATION,
     ATTR_AT,
     ATTR_AT_ENTITY,
     ATTR_CALENDARS,
     ATTR_DATA,
+    ATTR_DAYS,
+    ATTR_DEPARTURE,
     ATTR_DEVICES,
     ATTR_DISPLAY,
     ATTR_END,
@@ -70,6 +74,7 @@ from .const import (
     SERVICE_FIND_EVENTS,
     SERVICE_FREEZE_PLANS,
     SERVICE_GET_PLANS,
+    SERVICE_PLAN_DEPARTURES,
     SERVICE_PLAN_WINDOW,
     SERVICE_SET_PLAN,
     SERVICE_UNFREEZE_PLANS,
@@ -140,6 +145,19 @@ PLAN_WINDOW_SCHEMA = probatio.Schema(
         probatio.Optional(ATTR_DISPLAY, default=DISPLAY_STEPS): probatio.In(
             [DISPLAY_SPAN, DISPLAY_STEPS]
         ),
+    }
+)
+
+PLAN_DEPARTURES_SCHEMA = probatio.Schema(
+    {
+        probatio.Optional(ATTR_OWNER): cv.string,
+        probatio.Required(ATTR_DEPARTURE): cv.entity_id,
+        probatio.Optional(ATTR_SUMMARY, default=""): cv.string,
+        probatio.Optional(ATTR_ADD_LOCATION, default=True): cv.boolean,
+        probatio.Optional(ATTR_DAYS, default=1): probatio.All(
+            probatio.Coerce(int), probatio.Range(min=0, max=7)
+        ),
+        probatio.Optional(ATTR_TAGS): probatio.All(cv.ensure_list, [cv.string]),
     }
 )
 
@@ -398,6 +416,43 @@ async def _async_plan_window(call: ServiceCall) -> None:
     )
 
 
+async def _async_plan_departures(call: ServiceCall) -> None:
+    """A mark for each departure up to the end of a day: the owner's set of plans."""
+    hass = call.hass
+    entry = _get_entry(hass)
+    reader = entry.runtime_data.events
+    owner = await _async_owner(call)
+    tags = _tags(hass, call.data.get(ATTR_TAGS))
+    entity_id = call.data[ATTR_DEPARTURE]
+    registered = er.async_get(hass).async_get(entity_id)
+    subentry_id = (
+        registered.config_subentry_id
+        if registered is not None and registered.config_entry_id == entry.entry_id
+        else None
+    )
+    if subentry_id is None or subentry_id not in reader.departure_specs:
+        raise _error("not_a_departure", entity=entity_id)
+    if (departures := reader.departures.get(subentry_id)) is None:
+        # The calendars are not read yet (Home Assistant has just started):
+        # nothing is known, nothing changes
+        return
+    now = dt_util.utcnow()
+    last_day = dt_util.now().date() + timedelta(days=call.data[ATTR_DAYS])
+    plans: list[tuple[str, list[Step]]] = []
+    for departure in departures:
+        at = dt_util.as_utc(departure.at)
+        if at <= now or dt_util.as_local(at).date() > last_day:
+            continue
+        event = departure.event
+        name = call.data[ATTR_SUMMARY] or event.summary
+        if call.data[ATTR_ADD_LOCATION] and event.location:
+            name = f"{name} — {event.location}"
+        plans.append((name, [Step(at=at, action="", name=name)]))
+    await entry.runtime_data.manager.async_set_plans(
+        owner, plans, tags=tags, display=DISPLAY_SPAN
+    )
+
+
 async def _async_freeze_plans(call: ServiceCall) -> None:
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
@@ -478,6 +533,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
         (SERVICE_ENSURE_STATE, _async_ensure_state, ENSURE_STATE_SCHEMA, SupportsResponse.OPTIONAL),
         (SERVICE_FIND_EVENTS, _async_find_events, FIND_EVENTS_SCHEMA, SupportsResponse.ONLY),
         (SERVICE_PLAN_WINDOW, _async_plan_window, PLAN_WINDOW_SCHEMA, SupportsResponse.NONE),
+        (
+            SERVICE_PLAN_DEPARTURES,
+            _async_plan_departures,
+            PLAN_DEPARTURES_SCHEMA,
+            SupportsResponse.NONE,
+        ),
         (SERVICE_FREEZE_PLANS, _async_freeze_plans, FREEZE_PLANS_SCHEMA, SupportsResponse.NONE),
         (SERVICE_UNFREEZE_PLANS, _async_unfreeze_plans, UNFREEZE_PLANS_SCHEMA, SupportsResponse.NONE),
     ):

@@ -23,10 +23,12 @@ from custom_components.zaya_planner.const import (
     CONF_KEYS,
     CONF_TAGS,
     DOMAIN,
+    EVENT_PLAN_DONE,
     EVENT_TIME_TO_PLAN,
 )
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.config_entries import ConfigSubentryData
+from homeassistant.const import EVENT_LOGBOOK_ENTRY
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.setup import async_setup_component
@@ -38,13 +40,16 @@ from .common import next_plan
 ERRORS = "sensor.zaya_planner_event_errors"
 
 
-def event(summary: str, start: str, end: str, description: str = "") -> CalendarEvent:
+def event(
+    summary: str, start: str, end: str, description: str = "", location: str = ""
+) -> CalendarEvent:
     """An event in Moscow time."""
     return CalendarEvent(
         start=dt_util.parse_datetime(f"{start}+03:00"),
         end=dt_util.parse_datetime(f"{end}+03:00"),
         summary=summary,
         description=description,
+        location=location or None,
     )
 
 
@@ -203,6 +208,7 @@ async def test_find_events(
             "start": "2026-10-22T08:00:00+03:00",
             "end": "2026-10-22T13:45:00+03:00",
             "all_day": False,
+            "location": "",
             "tags": ["leaf", "отвезти"],
             "attributes": {"В пути": "00:40:00"},
             "description": "#leaf #отвезти\nВ пути: 00:40:00",
@@ -224,18 +230,20 @@ async def test_find_events(
     assert [e["summary"] for e in found] == ["Work"]
     found = await find(hass, filter="#leaf", calendars=["calendar.masha"])
     assert [e["summary"] for e in found] == ["School"]
+    found = await find(hass, filter="#leaf !#отвезти")
+    assert [e["summary"] for e in found] == ["Work"]
     found = await find(hass, start="2026-10-23 00:00:00")
     assert [e["summary"] for e in found] == ["Trip", "Pool"]
 
 
-def departure(**data: Any) -> ConfigSubentryData:
+def departure(name: str = "Выезд Leaf", **data: Any) -> ConfigSubentryData:
     """A departure “Выезд Leaf”: #leaf, travel time from “В пути”, 30 minutes by default."""
     return ConfigSubentryData(
         subentry_type="departure",
-        title="Выезд Leaf",
+        title=name,
         unique_id=None,
         data={
-            "name": "Выезд Leaf",
+            "name": name,
             "tags": ["leaf"],
             "edge": "start",
             "travel_key": "В пути",
@@ -247,22 +255,29 @@ def departure(**data: Any) -> ConfigSubentryData:
 
 
 async def setup_departure(
-    hass: HomeAssistant, config_entry: MockConfigEntry, freezer, **data: Any
-) -> None:
-    """Set up Zaya Planner with a departure and let the calendars be read."""
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    freezer,
+    *,
+    more: list[ConfigSubentryData] | None = None,
+    options: dict[str, Any] | None = None,
+    **data: Any,
+) -> MockConfigEntry:
+    """Set up Zaya Planner with a departure (and more) and let the calendars be read."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Zaya Planner",
         data={},
         version=1,
         minor_version=4,
-        options=dict(config_entry.options),
-        subentries_data=[departure(**data)],
+        options={**config_entry.options, **(options or {})},
+        subentries_data=[departure(**data), *(more or [])],
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     await settle(hass, freezer)
+    return entry
 
 
 async def test_departure(
@@ -317,6 +332,207 @@ async def test_departure_with_travel_time(
     assert state.state == expected
     assert state.attributes["travel"] == "00:40:00"
     assert state.attributes["default_travel"] is False
+
+
+@pytest.mark.parametrize(
+    ("data", "expected", "location"),
+    [
+        # Not #отвезти: Dad's work, not Masha's walk with the dog
+        (
+            {"exclude_tags": ["отвезти"], "calendars": ["calendar.dad"]},
+            "2026-10-22T03:30:00+00:00",
+            "",
+        ),
+        # Masha's calendar only: school, not Dad's work
+        (
+            {"tags": ["leaf", "отвезти"], "calendars": ["calendar.masha"]},
+            "2026-10-22T04:20:00+00:00",
+            "School No. 5",
+        ),
+    ],
+)
+async def test_departure_without_tags_in_calendars(
+    hass: HomeAssistant,
+    calendars: dict[str, FakeCalendar],
+    config_entry: MockConfigEntry,
+    frozen_now,
+    data: dict[str, Any],
+    expected: str,
+    location: str,
+) -> None:
+    """Events without some tags, of some calendars; the location is shown."""
+    calendars["masha"].set(
+        [
+            event(
+                "School",
+                "2026-10-22T08:00:00",
+                "2026-10-22T13:45:00",
+                "#leaf #отвезти\nВ пути: 00:40:00",
+                "School No. 5",
+            ),
+            event("Walk", "2026-10-22T06:00:00", "2026-10-22T06:30:00", "#leaf"),
+        ]
+    )
+    await setup_departure(hass, config_entry, frozen_now, **data)
+    state = hass.states.get("sensor.vyezd_leaf")
+    assert state.state == expected
+    assert state.attributes["location"] == location
+
+
+PLANS = "calendar.zaya_planner_plans"
+MARKS = "automation.departures"
+
+
+async def marks_of(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """Return the plans of the automation that plans departures."""
+    response = await hass.services.async_call(
+        DOMAIN, "get_plans", {"owner": MARKS}, blocking=True, return_response=True
+    )
+    return response["plans"]
+
+
+async def plan_departures(hass: HomeAssistant, **data: Any) -> list[tuple[str, str, str]]:
+    """Call zaya_planner.plan_departures; return the marks: (status, start, summary)."""
+    await hass.services.async_call(
+        DOMAIN,
+        "plan_departures",
+        {
+            "owner": MARKS,
+            "departure": "sensor.vyezd_leaf",
+            "summary": "Departure",
+            "tags": ["leaf", "отвезти"],
+            **data,
+        },
+        blocking=True,
+    )
+    return [(p["status"], p["start"], p["summary"]) for p in await marks_of(hass)]
+
+
+async def test_plan_departures(
+    hass: HomeAssistant,
+    calendars: dict[str, FakeCalendar],
+    config_entry: MockConfigEntry,
+    frozen_now,
+    hass_ws_client,
+) -> None:
+    """Marks of today's and tomorrow's departures; another departure reads them on “Plans”."""
+    logbook = async_capture_events(hass, EVENT_LOGBOOK_ENTRY)
+    done = async_capture_events(hass, EVENT_PLAN_DONE)
+    lesson = "#leaf #отвезти\nВ пути: 00:40:00"
+    calendars["masha"].set(
+        [
+            event("Maths", "2026-10-22T08:00:00", "2026-10-22T08:35:00", lesson, "School"),
+            event("Music", "2026-10-22T12:00:00", "2026-10-22T13:00:00", lesson),
+            event("Pool", "2026-10-22T17:00:00", "2026-10-22T18:00:00", lesson, "Pool"),
+            # The day after tomorrow: not yet
+            event("Maths", "2026-10-23T08:00:00", "2026-10-23T08:35:00", lesson, "School"),
+        ]
+    )
+    calendars["dad"].set([])
+    await setup_departure(
+        hass,
+        config_entry,
+        frozen_now,
+        tags=["leaf", "отвезти"],
+        calendars=["calendar.masha"],
+        first_of_day=False,
+        # The first departure of a day among the marks on “Plans”
+        more=[
+            departure(
+                "Leaf",
+                tags=["leaf", "отвезти"],
+                calendars=[PLANS],
+                travel_key=None,
+                default_travel={"hours": 0, "minutes": 0, "seconds": 0},
+            )
+        ],
+        options={CONF_CALENDARS: ["calendar.masha", "calendar.dad", PLANS]},
+    )
+
+    # Today only: nothing
+    assert await plan_departures(hass, days=0) == []
+    marks = await plan_departures(hass)
+    assert marks == [
+        ("planned", "2026-10-22T07:20:00+03:00", "Departure — School"),
+        ("planned", "2026-10-22T11:20:00+03:00", "Departure"),
+        ("planned", "2026-10-22T16:20:00+03:00", "Departure — Pool"),
+    ]
+    made = len(logbook)
+    assert made == 3
+    # The same again: nothing changes, nothing is written
+    assert await plan_departures(hass) == marks
+    assert len(logbook) == made
+    (school, *_) = await marks_of(hass)
+    assert school["steps"][0]["summary"] == "Departure — School"
+    assert school["tags"] == ["leaf", "отвезти"]
+
+    # The marks are on “Plans”: the other departure reads them
+    await settle(hass, frozen_now)
+    state = hass.states.get("sensor.leaf")
+    assert (state.state, state.attributes["summary"]) == (
+        "2026-10-22T04:20:00+00:00",
+        "Departure — School",
+    )
+
+    # Music is gone from the calendar: so is its mark
+    calendars["masha"].set([e for e in calendars["masha"].events if e.summary != "Music"])
+    await settle(hass, frozen_now)
+    marks = await plan_departures(hass)
+    assert [m[0] for m in marks] == ["planned", "cancelled", "planned"]
+
+    # A person moves the school mark to 7:00: frozen; the automation does not move it back
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {
+            "type": "calendar/event/update",
+            "entity_id": PLANS,
+            "uid": school["uid"],
+            "event": {
+                "summary": "Departure — School",
+                "dtstart": "2026-10-22T07:00:00+03:00",
+                "dtend": "2026-10-22T07:01:00+03:00",
+            },
+        }
+    )
+    assert (await client.receive_json())["success"]
+    marks = await plan_departures(hass)
+    assert marks == [
+        ("frozen", "2026-10-22T07:00:00+03:00", "Departure — School"),
+        ("cancelled", "2026-10-22T11:20:00+03:00", "Departure"),
+        ("planned", "2026-10-22T16:20:00+03:00", "Departure — Pool"),
+    ]
+    await settle(hass, frozen_now)
+    assert hass.states.get("sensor.leaf").state == "2026-10-22T04:00:00+00:00"
+
+    # A person deletes the pool mark: it is not made again
+    pool = (await marks_of(hass))[2]["uid"]
+    await client.send_json_auto_id(
+        {"type": "calendar/event/delete", "entity_id": PLANS, "uid": pool}
+    )
+    assert (await client.receive_json())["success"]
+    marks = await plan_departures(hass)
+    assert [m[0] for m in marks] == ["frozen", "cancelled", "cancelled"]
+
+    # At 7:00 the mark is done: there is nothing to run
+    frozen_now.move_to("2026-10-22T04:00:30+00:00")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    marks = await plan_departures(hass)
+    assert marks[0][0] == "done"
+    assert [e.data["summary"] for e in done] == ["Departure — School"]
+
+
+async def test_plan_departures_refuses(
+    hass: HomeAssistant,
+    calendars: dict[str, FakeCalendar],
+    config_entry: MockConfigEntry,
+    frozen_now,
+) -> None:
+    """Only a departure sensor of Zaya Planner."""
+    await setup_departure(hass, config_entry, frozen_now)
+    with pytest.raises(ServiceValidationError) as err:
+        await plan_departures(hass, departure="sensor.zaya_planner_next_step")
+    assert err.value.translation_key == "not_a_departure"
 
 
 async def test_step_at_an_event(

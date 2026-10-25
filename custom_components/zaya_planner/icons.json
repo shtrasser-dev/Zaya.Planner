@@ -42,6 +42,9 @@
     "plan_window": {
       "service": "mdi:clock-time-four-outline"
     },
+    "plan_departures": {
+      "service": "mdi:car-clock"
+    },
     "freeze_plans": {
       "service": "mdi:snowflake"
     },

@@ -2,7 +2,11 @@
 
 An owner (an automation or a script) has at most one next plan, which it may
 change, plus the plans that are already frozen or running, which only a person
-may change. Every change is written to disk right away.
+may change. An owner of marks (“Plan departures”) has a set of them instead.
+
+What a person decided stays: a plan a person moved is frozen, and a plan a
+person moved or cancelled is not made again while its owner plans the same.
+Every change is written to disk right away.
 """
 
 from __future__ import annotations
@@ -104,6 +108,17 @@ class PlanManager:
     def _locked(self, owner: str) -> list[Plan]:
         return [plan for plan in self.find(owner=owner) if plan.is_locked]
 
+    def _decided(self, owner: str, steps: list[Step]) -> Plan | None:
+        """Return the owner's plan with these steps that a person moved or cancelled."""
+        return next(
+            (
+                plan
+                for plan in self.find(owner=owner)
+                if plan.by_person and _same_steps(plan.planned_steps, steps)
+            ),
+            None,
+        )
+
     # ---------------------------------------------------------------- changes
 
     async def async_set_plan(
@@ -120,10 +135,13 @@ class PlanManager:
         """Make `steps` the owner's next plan.
 
         The next plan must start after the owner's frozen and running plans end;
-        those are changed only with `force` (a person's choice).
+        those are changed only with `force` (a person's choice). A plan a person
+        moved or cancelled is not made again.
         """
         now = dt_util.utcnow()
         tags = list(tags or [])
+        if not force and (decided := self._decided(owner, steps)) is not None:
+            return decided, PlanResult.UNCHANGED
         locked = self._locked(owner)
         overlapping = [plan for plan in locked if steps[0].at <= plan.end]
         if overlapping:
@@ -156,6 +174,9 @@ class PlanManager:
             result = PlanResult.CREATED
         else:
             plan.steps = steps
+            # The owner plans something else now: what a person decided is over
+            plan.origin = None
+            plan.by_person = False
             result = PlanResult.UPDATED
         plan.summary = summary
         plan.tags = tags
@@ -169,6 +190,78 @@ class PlanManager:
         )
         await self._async_changed()
         return plan, result
+
+    async def async_set_plans(
+        self,
+        owner: str,
+        plans: list[tuple[str, list[Step]]],
+        *,
+        tags: list[str] | None = None,
+        display: str = DISPLAY_SPAN,
+    ) -> None:
+        """Make these (summary, steps) the owner's plans, as a set.
+
+        A plan that is there already (by its steps as the owner made them) is
+        kept, also when frozen, running, finished, or moved or cancelled by a
+        person; the others are made; the owner's planned plans that are not
+        among them are cancelled.
+        """
+        tags = list(tags or [])
+        kept: set[str] = set()
+        changed = False
+        for summary, steps in plans:
+            plan = next(
+                (
+                    plan
+                    for plan in self.find(owner=owner)
+                    # Not a plan its owner cancelled: one that is open, finished, or
+                    # decided by a person (moved earlier and done, deleted)
+                    if (plan.status != PlanStatus.CANCELLED or plan.by_person)
+                    and _same_steps(plan.planned_steps, steps)
+                ),
+                None,
+            )
+            if plan is None:
+                plan = Plan(
+                    uid=uuid4().hex,
+                    owner=owner,
+                    steps=steps,
+                    summary=summary,
+                    tags=list(tags),
+                    display=display,
+                )
+                self._plans[plan.uid] = plan
+                result = PlanResult.CREATED
+            elif plan.status == PlanStatus.PLANNED and (
+                plan.summary,
+                plan.tags,
+                plan.display,
+            ) != (summary, tags, display):
+                plan.summary = summary
+                plan.tags = list(tags)
+                plan.display = display
+                plan.updated_at = dt_util.utcnow()
+                result = PlanResult.UPDATED
+            else:
+                kept.add(plan.uid)
+                continue
+            kept.add(plan.uid)
+            changed = True
+            self.log(
+                message(
+                    self.hass,
+                    f"plan_{result}",
+                    summary=plan.display_summary,
+                    start=local_text(plan.start),
+                )
+            )
+        for plan in self.find(owner=owner, statuses=[PlanStatus.PLANNED]):
+            if plan.uid not in kept:
+                self._close(plan, PlanStatus.CANCELLED, message(self.hass, "reason_owner"))
+                self.log(message(self.hass, "plan_cancelled", summary=plan.display_summary))
+                changed = True
+        if changed:
+            await self._async_changed()
 
     async def async_cancel(
         self, owner: str, *, force: bool = False
@@ -204,21 +297,30 @@ class PlanManager:
         if plan is None or not plan.is_open:
             return None
         self._close(plan, PlanStatus.CANCELLED, message(self.hass, "reason_manual"))
+        plan.by_person = True
         self.log(message(self.hass, "plan_cancelled", summary=plan.display_summary))
         await self._async_changed()
         return plan
 
     async def async_move_by_person(self, uid: str, delta: timedelta) -> Plan | None:
-        """Move all steps of a plan that has not started (moved in the calendar)."""
+        """Move all steps of a plan that has not started (moved in the calendar).
+
+        The plan is frozen: a person decided, automations do not move it back.
+        """
         plan = self.get(uid)
         if plan is None or plan.status not in (PlanStatus.PLANNED, PlanStatus.FROZEN):
             return None
+        if plan.origin is None:
+            plan.origin = [step.copy() for step in plan.steps]
         for step in plan.steps:
             step.at += delta
+        plan.by_person = True
         plan.updated_at = dt_util.utcnow()
         self.log(
             message(self.hass, "plan_moved", summary=plan.display_summary, start=local_text(plan.start))
         )
+        if plan.status == PlanStatus.PLANNED:
+            self.freeze(plan)
         await self._async_changed()
         return plan
 

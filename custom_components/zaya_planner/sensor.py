@@ -220,6 +220,7 @@ class DepartureSensor(SensorEntity):
             "calendar": event.calendar,
             "start": event.start.isoformat(),
             "end": event.end.isoformat(),
+            "location": event.location,
             "travel": _duration_text(departure.travel),
             "default_travel": departure.default_travel,
         }
