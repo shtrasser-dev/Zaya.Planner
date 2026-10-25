@@ -75,7 +75,7 @@ triggers:
 actions:
   - action: zaya_planner.plan_marks
     data:
-      time_entity: sensor.leaf_trips
+      time_entity: [sensor.leaf_trips]
       summary: Departure
       tags: [leaf, take_there, night]
 ```
@@ -233,7 +233,7 @@ nothing changes.
 ```yaml
 - action: zaya_planner.plan_marks
   data:
-    time_entity: sensor.leaf_trips
+    time_entity: [sensor.leaf_trips]
     summary: Departure
     tags: [leaf, take_there]
 ```
