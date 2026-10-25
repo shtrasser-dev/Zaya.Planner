@@ -26,9 +26,9 @@ from .const import (
     EVENTS_REFRESH_INTERVAL,
     LONGEST_TIMED_EVENT,
     SIGNAL_EVENTS_UPDATED,
-    SUBENTRY_DEPARTURE,
+    SUBENTRY_CALENDAR_SENSOR,
 )
-from .departures import Departure, DepartureSpec, calculate
+from .calendar_sensor import CalendarSensorSpec, EventTime, calculate
 from .description import Dictionary, Filter, Reading, by_start, first_of_each_day
 from .messages import message
 
@@ -73,8 +73,8 @@ class FoundEvent:
 class EventError:
     """Something wrong in an event (or a calendar) of the chosen calendars."""
 
-    # unknown_tag, empty_value, too_long, no_calendar; of a departure:
-    # no_travel_time, not_duration
+    # unknown_tag, empty_value, too_long, no_calendar; of a calendar sensor:
+    # no_offset, not_duration
     code: str
     calendar: str
     summary: str = ""
@@ -124,13 +124,14 @@ class EventReader:
             entry.options.get(CONF_TAGS, []), entry.options.get(CONF_KEYS, [])
         )
         self.errors: list[EventError] = []
-        # Departures added on the integration page, by subentry
-        self.departure_specs: dict[str, DepartureSpec] = {
-            subentry_id: DepartureSpec.from_data(subentry.data)
+        # Calendar sensors added on the integration page, by subentry
+        self.sensor_specs: dict[str, CalendarSensorSpec] = {
+            subentry_id: CalendarSensorSpec.from_data(subentry.data)
             for subentry_id, subentry in entry.subentries.items()
-            if subentry.subentry_type == SUBENTRY_DEPARTURE
+            if subentry.subentry_type == SUBENTRY_CALENDAR_SENSOR
         }
-        self.departures: dict[str, list[Departure]] = {}
+        # Their times, once the calendars are read
+        self.sensor_times: dict[str, list[EventTime]] = {}
         # What the events looked like last time, to tell rules when they change
         self._fingerprint: tuple[Any, ...] | None = None
         self._subscribed: dict[str, tuple[CalendarEntity, CALLBACK_TYPE]] = {}
@@ -283,9 +284,9 @@ class EventReader:
                         EventError("too_long", event.calendar, event.summary, _day(event.start))
                     )
 
-        for subentry_id, spec in self.departure_specs.items():
-            departures, problems = calculate(spec, events, dt_util.parse_duration)
-            self.departures[subentry_id] = departures
+        for subentry_id, spec in self.sensor_specs.items():
+            times, problems = calculate(spec, events, dt_util.parse_duration)
+            self.sensor_times[subentry_id] = times
             errors.extend(
                 EventError(
                     problem.code,
@@ -321,8 +322,8 @@ class EventReader:
                 "\n".join(self.describe(error) for error in new),
             )
         first_read, self._first_read = self._first_read, False
-        # Departures are known once the calendars are read the first time
-        if changed or (first_read and self.departure_specs):
+        # Times of calendar sensors are known once the calendars are read the first time
+        if changed or (first_read and self.sensor_specs):
             # Rules plan again when the calendars change
             self.entry.runtime_data.time_to_plan.async_fire()
 

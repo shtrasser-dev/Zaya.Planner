@@ -9,7 +9,7 @@ from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import (
     config_validation as cv,
     device_registry as dr,
@@ -21,9 +21,15 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CLEANUP_INTERVAL,
+    CONF_DEFAULT_OFFSET,
+    CONF_FIRST_OF_DAY,
+    CONF_OFFSET_KEY,
     CONF_RETENTION_DAYS,
+    CONF_SIGN,
     DEFAULT_RETENTION_DAYS,
     DOMAIN,
+    SIGN_MINUS,
+    SUBENTRY_CALENDAR_SENSOR,
 )
 from .events import EventReader
 from .executor import Executor
@@ -125,7 +131,29 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await _async_remove_tasks_and_moments(hass, entry)
         hass.config_entries.async_update_entry(entry, minor_version=4)
         _LOGGER.info("Tasks and moments were removed: automations make plans now")
+    if entry.version == 1 and entry.minor_version < 5:
+        _async_departures_to_calendar_sensors(hass, entry)
+        hass.config_entries.async_update_entry(entry, minor_version=5)
+        _LOGGER.info("Departures became calendar sensors")
     return True
+
+
+@callback
+def _async_departures_to_calendar_sensors(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """1.5: “travel time” of a departure is an offset to subtract; the first of the day stays."""
+    for subentry in list(entry.subentries.values()):
+        if subentry.subentry_type != SUBENTRY_CALENDAR_SENSOR:
+            continue
+        data = dict(subentry.data)
+        if travel_key := data.pop("travel_key", None):
+            data[CONF_OFFSET_KEY] = travel_key
+        travel = data.pop("default_travel", None)
+        if CONF_DEFAULT_OFFSET not in data:
+            # The default travel time of a departure was 30 minutes
+            data[CONF_DEFAULT_OFFSET] = travel if travel is not None else {"minutes": 30}
+        data.setdefault(CONF_SIGN, SIGN_MINUS)
+        data.setdefault(CONF_FIRST_OF_DAY, True)
+        hass.config_entries.async_update_subentry(entry, subentry, data=data)
 
 
 def _async_remove_stale_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:

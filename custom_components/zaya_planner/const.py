@@ -57,7 +57,7 @@ SERVICE_FIND_EVENTS: Final = "find_events"
 SERVICE_PLAN_WINDOW: Final = "plan_window"
 SERVICE_FREEZE_PLANS: Final = "freeze_plans"
 SERVICE_UNFREEZE_PLANS: Final = "unfreeze_plans"
-SERVICE_PLAN_DEPARTURES: Final = "plan_departures"
+SERVICE_PLAN_MARKS: Final = "plan_marks"
 
 # Built-in action a step may run besides scripts: turn on/off and confirm
 BUILTIN_ACTIONS: Final = frozenset({f"{DOMAIN}.{SERVICE_ENSURE_STATE}"})
@@ -79,12 +79,12 @@ ATTR_START_ENTITY: Final = "start_entity"
 ATTR_START_OFFSET: Final = "start_offset"
 ATTR_END_ENTITY: Final = "end_entity"
 ATTR_END_OFFSET: Final = "end_offset"
-# “Plan departures”: a mark for each departure of a departure sensor, from now
-# to the end of the day this many days on; the mark's name gets the event's
-# location
-ATTR_DEPARTURE: Final = "departure"
-ATTR_DAYS: Final = "days"
+# “Plan marks”: a mark at the time of an entity (each time it lists) plus
+# minutes; the mark's name may get the location of the event
+ATTR_TIME_ENTITY: Final = "time_entity"
 ATTR_ADD_LOCATION: Final = "add_location"
+# Times listed by a calendar sensor with a horizon: [{at, summary, location, …}]
+ATTR_TIMES: Final = "times"
 # “Freeze plans”: those that start within this many hours
 ATTR_WITHIN_HOURS: Final = "within_hours"
 ATTR_ON_FAILURE: Final = "on_failure"
@@ -195,16 +195,21 @@ ATTR_SUBTRACT: Final = "subtract"
 ATTR_EVENTS: Final = "events"
 
 
-# ---------------------------------------------------------------- departures
+# ---------------------------------------------------------------- calendar sensors
 
-# “Add departure” on the integration page: a subentry with a timestamp sensor
-SUBENTRY_DEPARTURE: Final = "departure"
+# “Add calendar sensor” on the integration page: a subentry with a timestamp
+# sensor. The key is the one of its first version (“departure”), kept so that
+# sensors made then stay
+SUBENTRY_CALENDAR_SENSOR: Final = "departure"
 CONF_NAME: Final = "name"
 CONF_EDGE: Final = "edge"
-CONF_TRAVEL_KEY: Final = "travel_key"
-CONF_DEFAULT_TRAVEL: Final = "default_travel"
+CONF_OFFSET_KEY: Final = "offset_key"
+CONF_SIGN: Final = "sign"
+CONF_DEFAULT_OFFSET: Final = "default_offset"
+CONF_HORIZON: Final = "horizon"
 CONF_FIRST_OF_DAY: Final = "first_of_day"
 CONF_EXCLUDE_TAGS: Final = "exclude_tags"
 EDGE_START: Final = "start"
 EDGE_END: Final = "end"
-DEFAULT_TRAVEL: Final = timedelta(minutes=30)
+SIGN_MINUS: Final = "minus"
+SIGN_PLUS: Final = "plus"

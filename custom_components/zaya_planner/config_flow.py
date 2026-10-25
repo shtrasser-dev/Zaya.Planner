@@ -36,26 +36,29 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_ACTION_PREFIX,
     CONF_CALENDARS,
-    CONF_DEFAULT_TRAVEL,
+    CONF_DEFAULT_OFFSET,
     CONF_EDGE,
     CONF_EXCLUDE_TAGS,
     CONF_FIRST_OF_DAY,
+    CONF_HORIZON,
     CONF_KEYS,
     CONF_LATENESS_HOURS,
     CONF_NAME,
     CONF_NOTIFY_ACTION,
+    CONF_OFFSET_KEY,
     CONF_RETENTION_DAYS,
+    CONF_SIGN,
     CONF_TAGS,
-    CONF_TRAVEL_KEY,
     DEFAULT_ACTION_PREFIX,
     DEFAULT_LATENESS_HOURS,
     DEFAULT_NOTIFY_ACTION,
     DEFAULT_RETENTION_DAYS,
-    DEFAULT_TRAVEL,
     DOMAIN,
     EDGE_END,
     EDGE_START,
-    SUBENTRY_DEPARTURE,
+    SIGN_MINUS,
+    SIGN_PLUS,
+    SUBENTRY_CALENDAR_SENSOR,
 )
 from .description import norm
 
@@ -135,7 +138,8 @@ class ZayaPlannerConfigFlow(ConfigFlow, domain=DOMAIN):
     # 1.2: rules moved out of the integration into automations
     # 1.3: people, cars and the house plan removed
     # 1.4: tasks became plans, moments removed
-    MINOR_VERSION = 4
+    # 1.5: departures became calendar sensors
+    MINOR_VERSION = 5
 
     @override
     async def async_step_user(
@@ -161,8 +165,8 @@ class ZayaPlannerConfigFlow(ConfigFlow, domain=DOMAIN):
     def async_get_supported_subentry_types(
         cls, config_entry: ConfigEntry
     ) -> dict[str, type[ConfigSubentryFlow]]:
-        """Departures are added as subentries (“Add departure”)."""
-        return {SUBENTRY_DEPARTURE: DepartureSubentryFlow}
+        """Calendar sensors are added as subentries (“Add calendar sensor”)."""
+        return {SUBENTRY_CALENDAR_SENSOR: CalendarSensorSubentryFlow}
 
 
 class ZayaPlannerOptionsFlow(OptionsFlow):
@@ -199,12 +203,11 @@ class ZayaPlannerOptionsFlow(OptionsFlow):
 
 
 
-# ---------------------------------------------------------------- departures
+# ---------------------------------------------------------------- calendar sensors
 
 
-def _departure_schema(entry: ConfigEntry) -> probatio.Schema:
-    """Which events, which of their ends, how long the way takes."""
-    default_travel = int(DEFAULT_TRAVEL.total_seconds()) // 60
+def _sensor_schema(entry: ConfigEntry) -> probatio.Schema:
+    """Which events, which of their ends, how much earlier or later, how far ahead."""
     # Only words of the dictionary and the chosen calendars can be chosen
     tags = SelectSelector(
         SelectSelectorConfig(
@@ -234,22 +237,31 @@ def _departure_schema(entry: ConfigEntry) -> probatio.Schema:
                     mode=SelectSelectorMode.LIST,
                 )
             ),
-            probatio.Optional(CONF_TRAVEL_KEY): SelectSelector(
+            probatio.Optional(CONF_OFFSET_KEY): SelectSelector(
                 SelectSelectorConfig(
                     options=list(entry.options.get(CONF_KEYS, [])),
                     mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
+            probatio.Required(CONF_SIGN, default=SIGN_MINUS): SelectSelector(
+                SelectSelectorConfig(
+                    options=[SIGN_MINUS, SIGN_PLUS],
+                    translation_key="sign",
+                    mode=SelectSelectorMode.LIST,
+                )
+            ),
             probatio.Required(
-                CONF_DEFAULT_TRAVEL,
-                default={"hours": default_travel // 60, "minutes": default_travel % 60},
+                CONF_DEFAULT_OFFSET, default={"hours": 0, "minutes": 0}
             ): DurationSelector(DurationSelectorConfig()),
-            probatio.Required(CONF_FIRST_OF_DAY, default=True): BooleanSelector(),
+            probatio.Optional(CONF_HORIZON): DurationSelector(
+                DurationSelectorConfig(enable_day=True)
+            ),
+            probatio.Required(CONF_FIRST_OF_DAY, default=False): BooleanSelector(),
         }
     )
 
 
-def _departure_errors(data: dict[str, Any]) -> dict[str, str]:
+def _sensor_errors(data: dict[str, Any]) -> dict[str, str]:
     errors: dict[str, str] = {}
     if not data.get(CONF_NAME, "").strip():
         errors[CONF_NAME] = "no_name"
@@ -258,31 +270,31 @@ def _departure_errors(data: dict[str, Any]) -> dict[str, str]:
     return errors
 
 
-def _departure_data(data: dict[str, Any]) -> dict[str, Any]:
+def _sensor_data(data: dict[str, Any]) -> dict[str, Any]:
     data = {**data, CONF_NAME: data[CONF_NAME].strip()}
-    for key in (CONF_TRAVEL_KEY, CONF_EXCLUDE_TAGS, CONF_CALENDARS):
-        if not data.get(key):
+    for key in (CONF_OFFSET_KEY, CONF_EXCLUDE_TAGS, CONF_CALENDARS, CONF_HORIZON):
+        if not data.get(key) or (key == CONF_HORIZON and not any(data[key].values())):
             data.pop(key, None)
     return data
 
 
-class DepartureSubentryFlow(ConfigSubentryFlow):
-    """Add or change a departure."""
+class CalendarSensorSubentryFlow(ConfigSubentryFlow):
+    """Add or change a calendar sensor."""
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        """Add a departure."""
+        """Add a calendar sensor."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            errors = _departure_errors(user_input)
+            errors = _sensor_errors(user_input)
             if not errors:
-                data = _departure_data(user_input)
+                data = _sensor_data(user_input)
                 return self.async_create_entry(title=data[CONF_NAME], data=data)
         return self.async_show_form(
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(
-                _departure_schema(self._get_entry()), user_input or {}
+                _sensor_schema(self._get_entry()), user_input or {}
             ),
             errors=errors,
         )
@@ -290,21 +302,21 @@ class DepartureSubentryFlow(ConfigSubentryFlow):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        """Change a departure."""
+        """Change a calendar sensor."""
         entry = self._get_entry()
         subentry = self._get_reconfigure_subentry()
         errors: dict[str, str] = {}
         if user_input is not None:
-            errors = _departure_errors(user_input)
+            errors = _sensor_errors(user_input)
             if not errors:
-                data = _departure_data(user_input)
+                data = _sensor_data(user_input)
                 return self.async_update_and_abort(
                     entry, subentry, title=data[CONF_NAME], data=data
                 )
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=self.add_suggested_values_to_schema(
-                _departure_schema(entry), user_input or dict(subentry.data)
+                _sensor_schema(entry), user_input or dict(subentry.data)
             ),
             errors=errors,
         )

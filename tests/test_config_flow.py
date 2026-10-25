@@ -146,7 +146,7 @@ async def test_rules_from_older_version_are_removed(hass: HomeAssistant) -> None
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.minor_version == 4
+    assert entry.minor_version == 5
     assert dict(entry.subentries) == {}
 
 
@@ -193,7 +193,7 @@ async def test_household_from_older_version_is_removed(hass: HomeAssistant, tmp_
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.minor_version == 4
+    assert entry.minor_version == 5
     assert dict(entry.subentries) == {}
     assert "people" not in entry.options
     assert devices.async_get(person.id) is None
@@ -240,15 +240,17 @@ async def test_tasks_and_moments_from_older_version_are_removed(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.minor_version == 4
+    assert entry.minor_version == 5
     assert dict(entry.subentries) == {}
     assert entities.async_get_entity_id("calendar", DOMAIN, f"{entry.entry_id}_schedule") is None
     assert hass.states.get("calendar.zaya_planner_plans") is not None
     assert not (storage / f"{DOMAIN}.tasks").exists()
 
 
-async def test_departure_flow(hass: HomeAssistant, config_entry: MockConfigEntry, frozen_now) -> None:
-    """A departure is added from the dictionary's words, changed, and has a sensor."""
+async def test_calendar_sensor_flow(
+    hass: HomeAssistant, config_entry: MockConfigEntry, frozen_now
+) -> None:
+    """A calendar sensor is added from the dictionary's words, changed, and has a sensor."""
     config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
         config_entry,
@@ -262,7 +264,7 @@ async def test_departure_flow(hass: HomeAssistant, config_entry: MockConfigEntry
     )
     assert result["type"] is FlowResultType.FORM
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"name": " ", "tags": [], "edge": "start"}
+        result["flow_id"], {"name": " ", "tags": [], "edge": "start", "sign": "minus"}
     )
     assert result["errors"] == {"name": "no_name", "tags": "no_tags"}
 
@@ -272,8 +274,10 @@ async def test_departure_flow(hass: HomeAssistant, config_entry: MockConfigEntry
             "name": "Выезд Leaf",
             "tags": ["leaf"],
             "edge": "start",
-            "travel_key": "В пути",
-            "default_travel": {"hours": 0, "minutes": 30, "seconds": 0},
+            "offset_key": "В пути",
+            "sign": "minus",
+            "default_offset": {"hours": 0, "minutes": 30, "seconds": 0},
+            "horizon": {"hours": 0, "minutes": 0, "seconds": 0},
             "first_of_day": True,
         },
     )
@@ -281,8 +285,14 @@ async def test_departure_flow(hass: HomeAssistant, config_entry: MockConfigEntry
     await hass.async_block_till_done()
     (subentry,) = config_entry.subentries.values()
     assert subentry.title == "Выезд Leaf"
-    assert subentry.data["travel_key"] == "В пути"
-    # No calendars, no events: nothing to leave for
+    assert subentry.data["offset_key"] == "В пути"
+    # An empty horizon: only the next time
+    assert "horizon" not in subentry.data
+    # Unavailable until the calendars are read; then no calendars, no events: no time
+    assert hass.states.get("sensor.vyezd_leaf").state == "unavailable"
+    frozen_now.tick(5)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
     assert hass.states.get("sensor.vyezd_leaf").state == "unknown"
 
     result = await config_entry.start_subentry_reconfigure_flow(hass, subentry.subentry_id)
@@ -292,12 +302,15 @@ async def test_departure_flow(hass: HomeAssistant, config_entry: MockConfigEntry
             "name": "Выезд Leaf",
             "tags": ["leaf"],
             "edge": "end",
-            "default_travel": {"hours": 0, "minutes": 20, "seconds": 0},
+            "sign": "plus",
+            "default_offset": {"hours": 0, "minutes": 20, "seconds": 0},
+            "horizon": {"days": 1, "hours": 12},
             "first_of_day": False,
         },
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     subentry = config_entry.subentries[subentry.subentry_id]
-    assert subentry.data["edge"] == "end"
-    assert "travel_key" not in subentry.data
+    assert (subentry.data["edge"], subentry.data["sign"]) == ("end", "plus")
+    assert subentry.data["horizon"] == {"days": 1, "hours": 12}
+    assert "offset_key" not in subentry.data

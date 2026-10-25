@@ -1,7 +1,8 @@
 """Actions (services) of Zaya Planner.
 
 Plans: add_step (to a draft of the current run), set_plan, cancel_plan, get_plans;
-plan_window and plan_departures make whole plans in one action.
+plan_window and plan_marks make whole plans in one action; from an entity that
+lists times (a calendar sensor with a horizon) they make one for each time.
 Steps: ensure_state (turn on/off and confirm). Calendars: find_events.
 """
 
@@ -22,7 +23,7 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv, entity_registry as er
+from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -32,8 +33,6 @@ from .const import (
     ATTR_AT_ENTITY,
     ATTR_CALENDARS,
     ATTR_DATA,
-    ATTR_DAYS,
-    ATTR_DEPARTURE,
     ATTR_DEVICES,
     ATTR_DISPLAY,
     ATTR_END,
@@ -59,6 +58,8 @@ from .const import (
     ATTR_SUBTRACT,
     ATTR_SUMMARY,
     ATTR_TAGS,
+    ATTR_TIME_ENTITY,
+    ATTR_TIMES,
     ATTR_WITHIN_HOURS,
     BUILTIN_ACTIONS,
     CONF_ACTION_PREFIX,
@@ -74,7 +75,7 @@ from .const import (
     SERVICE_FIND_EVENTS,
     SERVICE_FREEZE_PLANS,
     SERVICE_GET_PLANS,
-    SERVICE_PLAN_DEPARTURES,
+    SERVICE_PLAN_MARKS,
     SERVICE_PLAN_WINDOW,
     SERVICE_SET_PLAN,
     SERVICE_UNFREEZE_PLANS,
@@ -148,15 +149,13 @@ PLAN_WINDOW_SCHEMA = probatio.Schema(
     }
 )
 
-PLAN_DEPARTURES_SCHEMA = probatio.Schema(
+PLAN_MARKS_SCHEMA = probatio.Schema(
     {
         probatio.Optional(ATTR_OWNER): cv.string,
-        probatio.Required(ATTR_DEPARTURE): cv.entity_id,
+        probatio.Required(ATTR_TIME_ENTITY): cv.entity_id,
+        probatio.Optional(ATTR_OFFSET, default=0): probatio.Coerce(int),
         probatio.Optional(ATTR_SUMMARY, default=""): cv.string,
         probatio.Optional(ATTR_ADD_LOCATION, default=True): cv.boolean,
-        probatio.Optional(ATTR_DAYS, default=1): probatio.All(
-            probatio.Coerce(int), probatio.Range(min=0, max=7)
-        ),
         probatio.Optional(ATTR_TAGS): probatio.All(cv.ensure_list, [cv.string]),
     }
 )
@@ -261,6 +260,28 @@ def _entity_time(hass: HomeAssistant, entity_id: str) -> datetime | None:
         )
         return as_aware(moment if moment > now else moment + timedelta(days=1))
     return None
+
+
+def _entity_times(hass: HomeAssistant, entity_id: str) -> list[tuple[datetime, dict[str, Any]]] | None:
+    """Return the times an entity shows, each with what is known of it (summary, location).
+
+    An entity that lists times (the `times` attribute of a calendar sensor with a
+    horizon) gives each of them; another one gives its state, if it is a time.
+    None: the entity is unavailable (e.g. the calendars are not read yet), so
+    nothing is known; an empty list: it shows no time.
+    """
+    state = hass.states.get(entity_id)
+    if state is None or state.state == STATE_UNAVAILABLE:
+        return None
+    listed = state.attributes.get(ATTR_TIMES)
+    if isinstance(listed, list):
+        times = []
+        for item in listed:
+            if isinstance(item, dict) and (at := dt_util.parse_datetime(str(item.get("at")))):
+                times.append((as_aware(at), item))
+        return times
+    at = _entity_time(hass, entity_id)
+    return [] if at is None else [(at, dict(state.attributes))]
 
 
 async def _async_event_time(
@@ -382,75 +403,94 @@ async def _async_set_plan(call: ServiceCall) -> None:
 
 
 async def _async_plan_window(call: ServiceCall) -> None:
-    """Turn devices on at the start and off at the end: a plan of two steps."""
+    """Turn devices on at the start and off at the end: the owner's windows.
+
+    The start and the end are times of entities. When both are the same entity
+    and it lists times (a calendar sensor with a horizon), there is a window for
+    each time; windows that overlap become one.
+    """
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
     owner = await _async_owner(call)
     tags = _tags(hass, call.data.get(ATTR_TAGS))
-    start = _entity_time(hass, call.data[ATTR_START_ENTITY])
-    end = _entity_time(hass, call.data[ATTR_END_ENTITY])
-    if start is None or end is None:
-        # An entity shows no time (the event is gone): no window, the next plan
-        # is cancelled; frozen and running plans are left to a person
-        if manager.find(owner=owner, statuses=[PlanStatus.PLANNED]):
-            await manager.async_cancel(owner)
-        return
-    start += timedelta(minutes=call.data[ATTR_START_OFFSET])
-    end += timedelta(minutes=call.data[ATTR_END_OFFSET])
-    if end <= start or start <= dt_util.utcnow():
-        # No window now, e.g. at night: the next sunset is tomorrow, the next sunrise
-        # this morning; or it has begun already
-        return
+    start_entity = call.data[ATTR_START_ENTITY]
+    end_entity = call.data[ATTR_END_ENTITY]
+    start_offset = timedelta(minutes=call.data[ATTR_START_OFFSET])
+    end_offset = timedelta(minutes=call.data[ATTR_END_OFFSET])
+    now = dt_util.utcnow()
+
+    windows: list[tuple[datetime, datetime]] = []
+    if start_entity == end_entity:
+        if (times := _entity_times(hass, start_entity)) is None:
+            return
+        windows = [(at + start_offset, at + end_offset) for at, _ in times]
+    else:
+        states = [hass.states.get(start_entity), hass.states.get(end_entity)]
+        if any(state is not None and state.state == STATE_UNAVAILABLE for state in states):
+            return
+        start = _entity_time(hass, start_entity)
+        end = _entity_time(hass, end_entity)
+        if start is not None and end is not None:
+            if end <= start + start_offset - end_offset:
+                # No window now, e.g. at night: the next sunset is tomorrow, the
+                # next sunrise this morning. Nothing changes
+                return
+            windows = [(start + start_offset, end + end_offset)]
+    # A window must have a length and must not have begun
+    windows = sorted((start, end) for start, end in windows if start < end and start > now)
+    merged: list[tuple[datetime, datetime]] = []
+    for start, end in windows:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+
     devices = call.data[ATTR_DEVICES]
     action = f"{DOMAIN}.{SERVICE_ENSURE_STATE}"
-    steps = [
-        Step(at=start, action=action, data={ATTR_ENTITY_ID: devices, ATTR_STATE: "on"}),
-        Step(at=end, action=action, data={ATTR_ENTITY_ID: devices, ATTR_STATE: "off"}),
-    ]
     summary = call.data[ATTR_SUMMARY] or ", ".join(
         state.name if (state := hass.states.get(entity_id)) else entity_id
         for entity_id in devices
     )
-    await manager.async_set_plan(
-        owner, steps, summary=summary, tags=tags, display=call.data[ATTR_DISPLAY]
+    # No time (the event is gone): the owner's planned windows are cancelled;
+    # frozen and running ones are left to a person
+    await manager.async_set_plans(
+        owner,
+        [
+            (
+                summary,
+                [
+                    Step(at=start, action=action, data={ATTR_ENTITY_ID: devices, ATTR_STATE: "on"}),
+                    Step(at=end, action=action, data={ATTR_ENTITY_ID: devices, ATTR_STATE: "off"}),
+                ],
+            )
+            for start, end in merged
+        ],
+        tags=tags,
+        display=call.data[ATTR_DISPLAY],
     )
 
 
-async def _async_plan_departures(call: ServiceCall) -> None:
-    """A mark for each departure up to the end of a day: the owner's set of plans."""
+async def _async_plan_marks(call: ServiceCall) -> None:
+    """A mark at the time of an entity, or at each time it lists: the owner's marks."""
     hass = call.hass
-    entry = _get_entry(hass)
-    reader = entry.runtime_data.events
+    manager = _get_entry(hass).runtime_data.manager
     owner = await _async_owner(call)
     tags = _tags(hass, call.data.get(ATTR_TAGS))
-    entity_id = call.data[ATTR_DEPARTURE]
-    registered = er.async_get(hass).async_get(entity_id)
-    subentry_id = (
-        registered.config_subentry_id
-        if registered is not None and registered.config_entry_id == entry.entry_id
-        else None
-    )
-    if subentry_id is None or subentry_id not in reader.departure_specs:
-        raise _error("not_a_departure", entity=entity_id)
-    if (departures := reader.departures.get(subentry_id)) is None:
-        # The calendars are not read yet (Home Assistant has just started):
-        # nothing is known, nothing changes
+    entity_id = call.data[ATTR_TIME_ENTITY]
+    if (times := _entity_times(hass, entity_id)) is None:
         return
+    state = hass.states.get(entity_id)
     now = dt_util.utcnow()
-    last_day = dt_util.now().date() + timedelta(days=call.data[ATTR_DAYS])
+    offset = timedelta(minutes=call.data[ATTR_OFFSET])
     plans: list[tuple[str, list[Step]]] = []
-    for departure in departures:
-        at = dt_util.as_utc(departure.at)
-        if at <= now or dt_util.as_local(at).date() > last_day:
+    for at, info in times:
+        if (at := at + offset) <= now:
             continue
-        event = departure.event
-        name = call.data[ATTR_SUMMARY] or event.summary
-        if call.data[ATTR_ADD_LOCATION] and event.location:
-            name = f"{name} — {event.location}"
+        name = call.data[ATTR_SUMMARY] or info.get("summary") or (state.name if state else entity_id)
+        if call.data[ATTR_ADD_LOCATION] and (location := info.get("location")):
+            name = f"{name} — {location}"
         plans.append((name, [Step(at=at, action="", name=name)]))
-    await entry.runtime_data.manager.async_set_plans(
-        owner, plans, tags=tags, display=DISPLAY_SPAN
-    )
+    await manager.async_set_plans(owner, plans, tags=tags, display=DISPLAY_SPAN)
 
 
 async def _async_freeze_plans(call: ServiceCall) -> None:
@@ -533,12 +573,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         (SERVICE_ENSURE_STATE, _async_ensure_state, ENSURE_STATE_SCHEMA, SupportsResponse.OPTIONAL),
         (SERVICE_FIND_EVENTS, _async_find_events, FIND_EVENTS_SCHEMA, SupportsResponse.ONLY),
         (SERVICE_PLAN_WINDOW, _async_plan_window, PLAN_WINDOW_SCHEMA, SupportsResponse.NONE),
-        (
-            SERVICE_PLAN_DEPARTURES,
-            _async_plan_departures,
-            PLAN_DEPARTURES_SCHEMA,
-            SupportsResponse.NONE,
-        ),
+        (SERVICE_PLAN_MARKS, _async_plan_marks, PLAN_MARKS_SCHEMA, SupportsResponse.NONE),
         (SERVICE_FREEZE_PLANS, _async_freeze_plans, FREEZE_PLANS_SCHEMA, SupportsResponse.NONE),
         (SERVICE_UNFREEZE_PLANS, _async_unfreeze_plans, UNFREEZE_PLANS_SCHEMA, SupportsResponse.NONE),
     ):

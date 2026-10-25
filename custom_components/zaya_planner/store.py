@@ -2,7 +2,8 @@
 
 An owner (an automation or a script) has at most one next plan, which it may
 change, plus the plans that are already frozen or running, which only a person
-may change. An owner of marks (“Plan departures”) has a set of them instead.
+may change. An owner of windows or marks (“Turn on for a while”, “Plan marks”)
+has a set of them instead, one for each time of its entity.
 
 What a person decided stays: a plan a person moved is frozen, and a plan a
 person moved or cancelled is not made again while its owner plans the same.
@@ -221,6 +222,18 @@ class PlanManager:
                 ),
                 None,
             )
+            if plan is None and (
+                locked := [
+                    plan
+                    for plan in self._locked(owner)
+                    if steps[0].at <= plan.end and steps[-1].at >= plan.start
+                ]
+            ):
+                # It would overlap a frozen or running plan: that one stays
+                noted = len(locked[0].conflicts)
+                self._conflict(locked[0], "change")
+                changed = changed or len(locked[0].conflicts) > noted
+                continue
             if plan is None:
                 plan = Plan(
                     uid=uuid4().hex,

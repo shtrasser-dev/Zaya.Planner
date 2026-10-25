@@ -42,8 +42,8 @@
     "plan_window": {
       "service": "mdi:clock-time-four-outline"
     },
-    "plan_departures": {
-      "service": "mdi:car-clock"
+    "plan_marks": {
+      "service": "mdi:map-marker-star"
     },
     "freeze_plans": {
       "service": "mdi:snowflake"

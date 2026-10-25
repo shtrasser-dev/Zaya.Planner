@@ -1,4 +1,4 @@
-"""Sensors: next step, failed plans, all plans, errors in events, departures."""
+"""Sensors: next step, failed plans, all plans, errors in events, calendar sensors."""
 
 from __future__ import annotations
 
@@ -16,12 +16,13 @@ from homeassistant.util import dt as dt_util
 from . import ZayaPlannerConfigEntry
 from .const import (
     ATTR_PLANS,
+    ATTR_TIMES,
     OPEN_STATUSES,
     SIGNAL_EVENTS_UPDATED,
-    SUBENTRY_DEPARTURE,
+    SUBENTRY_CALENDAR_SENSOR,
     PlanStatus,
 )
-from .departures import Departure, next_departure
+from .calendar_sensor import CalendarSensorSpec, EventTime, upcoming
 from .display import plan_info, step_text
 from .entity import ZayaPlannerEntity
 from .models import Plan, Step
@@ -45,9 +46,9 @@ async def async_setup_entry(
         ]
     )
     for subentry_id, subentry in entry.subentries.items():
-        if subentry.subentry_type == SUBENTRY_DEPARTURE:
+        if subentry.subentry_type == SUBENTRY_CALENDAR_SENSOR:
             async_add_entities(
-                [DepartureSensor(entry, subentry)], config_subentry_id=subentry_id
+                [CalendarSensor(entry, subentry)], config_subentry_id=subentry_id
             )
 
 
@@ -165,28 +166,44 @@ def _duration_text(value: timedelta) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}:{seconds:02d}"
 
 
-class DepartureSensor(SensorEntity):
-    """A departure made with “Add departure”: when to leave next.
+def _event_info(time: EventTime) -> dict[str, Any]:
+    """Return the event a time comes from."""
+    event = time.event
+    return {
+        "summary": event.summary,
+        "calendar": event.calendar,
+        "start": event.start.isoformat(),
+        "end": event.end.isoformat(),
+        "location": event.location,
+    }
 
-    When a departure passes, rules are told to plan again (“time to plan”) for
-    the next one; changes of the calendars tell them anyway.
+
+class CalendarSensor(SensorEntity):
+    """A sensor made with “Add calendar sensor”: the next time of events with tags.
+
+    With a horizon, the `times` attribute lists every time within it. When the
+    next time passes, rules are told to plan again (“time to plan”); changes of
+    the calendars tell them anyway. Until the calendars are read it is
+    unavailable: nothing is known yet, which is not “no time”.
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_should_poll = False
-    _attr_icon = "mdi:car-clock"
+    _attr_icon = "mdi:calendar-clock"
 
     def __init__(self, entry: ZayaPlannerConfigEntry, subentry: ConfigSubentry) -> None:
-        """Initialize the departure; its entity id comes from its name."""
+        """Initialize the sensor; its entity id comes from its name."""
         self.entry = entry
         self._subentry_id = subentry.subentry_id
+        self._spec = CalendarSensorSpec.from_data(subentry.data)
         self._attr_name = subentry.title
+        # The unique id of its first version (departures) is kept
         self._attr_unique_id = f"{entry.entry_id}_departure_{subentry.subentry_id}"
         self._unsub_passed: CALLBACK_TYPE | None = None
 
     @override
     async def async_added_to_hass(self) -> None:
-        """Follow the calendars; move on when the departure passes."""
+        """Follow the calendars; move on when the next time passes."""
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
@@ -197,42 +214,51 @@ class DepartureSensor(SensorEntity):
         self.async_on_remove(self._async_cancel_passed)
         self._async_publish()
 
-    def _next(self) -> Departure | None:
-        departures = self.entry.runtime_data.events.departures.get(self._subentry_id, [])
-        return next_departure(departures, dt_util.utcnow())
+    def _times(self) -> list[EventTime]:
+        return self.entry.runtime_data.events.sensor_times.get(self._subentry_id, [])
+
+    def _next(self) -> EventTime | None:
+        return next(iter(upcoming(self._times(), dt_util.utcnow(), None)), None)
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Return False until the calendars are read."""
+        return self._subentry_id in self.entry.runtime_data.events.sensor_times
 
     @property
     @override
     def native_value(self) -> datetime | None:
-        """Return when to leave."""
-        departure = self._next()
-        return departure.at if departure else None
+        """Return the next time."""
+        time = self._next()
+        return time.at if time else None
 
     @property
     @override
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return the event and the travel time the departure comes from."""
-        if (departure := self._next()) is None:
-            return None
-        event = departure.event
-        return {
-            "summary": event.summary,
-            "calendar": event.calendar,
-            "start": event.start.isoformat(),
-            "end": event.end.isoformat(),
-            "location": event.location,
-            "travel": _duration_text(departure.travel),
-            "default_travel": departure.default_travel,
-        }
+        """Return the event of the next time, its offset, and the times within the horizon."""
+        attributes: dict[str, Any] = {}
+        if (time := self._next()) is not None:
+            attributes = {
+                **_event_info(time),
+                "offset": _duration_text(time.offset),
+                "default_offset": time.default_offset,
+            }
+        if self._spec.horizon is not None:
+            attributes[ATTR_TIMES] = [
+                {"at": dt_util.as_local(item.at).isoformat(), **_event_info(item)}
+                for item in upcoming(self._times(), dt_util.utcnow(), self._spec.horizon)
+            ]
+        return attributes or None
 
     @callback
     def _async_publish(self) -> None:
-        """Write the state; wake up when the departure passes."""
+        """Write the state; wake up when the next time passes."""
         self.async_write_ha_state()
         self._async_cancel_passed()
-        if (departure := self._next()) is not None:
+        if (time := self._next()) is not None:
             self._unsub_passed = async_track_point_in_utc_time(
-                self.hass, self._async_on_passed, departure.at
+                self.hass, self._async_on_passed, time.at
             )
 
     @callback

@@ -296,3 +296,25 @@ async def test_owner_is_who_started_the_run(
     with pytest.raises(ServiceValidationError) as err:
         await call(hass, "set_plan", {"steps": [LIGHTS[1]]})
     assert err.value.translation_key == "owner_unknown"
+
+
+async def test_plan_marks_from_an_entity(
+    hass: HomeAssistant, setup_entry: MockConfigEntry
+) -> None:
+    """A mark at the time of an entity; no time: cancelled; unavailable: nothing changes."""
+    hass.states.async_set(
+        "sensor.sun_next_rising", "2026-10-22T04:43:00+00:00", {"friendly_name": "Sunrise"}
+    )
+    data = {"owner": "automation.dawn", "time_entity": "sensor.sun_next_rising", "offset": -30}
+    await call(hass, "plan_marks", data)
+    plan = await next_plan(hass, "automation.dawn")
+    assert (plan["summary"], plan["start"]) == ("Sunrise", "2026-10-22T07:13:00+03:00")
+    assert [s["summary"] for s in plan["steps"]] == ["Sunrise"]
+
+    hass.states.async_set("sensor.sun_next_rising", "unavailable")
+    await call(hass, "plan_marks", data)
+    assert await next_plan(hass, "automation.dawn") is not None
+
+    hass.states.async_set("sensor.sun_next_rising", "unknown")
+    await call(hass, "plan_marks", data)
+    assert await next_plan(hass, "automation.dawn") is None
