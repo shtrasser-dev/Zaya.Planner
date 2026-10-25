@@ -1,6 +1,9 @@
 """Tests of adding, configuring and upgrading Zaya Planner."""
 
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from custom_components.zaya_planner import ENTITY_KEYS
 from custom_components.zaya_planner.config_flow import DEFAULT_OPTIONS

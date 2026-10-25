@@ -130,7 +130,7 @@ are saved, **when an event of a chosen calendar changes**, when a plan ends, and
 Automations may add triggers of their own (a snow sensor changed). Also when a departure passes
 (3.7), and once the calendars are first read if there are departures.
 
-### 3.7 Departures (2026-10-24)
+### 3.7 Departures (2026-10-24; calendar sensors since 0.13, see 3.8)
 
 “Minus attribute” in a step form was hard to read. Instead, a departure is made once, as a form:
 *Add departure* on the integration page (a subentry; a helper of its own would need a second
@@ -143,24 +143,36 @@ time; all-day events are left out; nothing in 8 days: unknown. Events without a 
 with one that is not a duration, go to “Errors in events”. Automations use it as “Time of” in
 “Turn on for a while” with offsets (−120 and −30 for the Leaf).
 
-### 3.8 Departures as marks (2026-10-25)
+### 3.8 Marks and calendar sensors (2026-10-25)
 
 One calendar is kept by people, another by automations. An automation puts **marks** on the
-“Plans” calendar with `plan_departures` (“Departure — School 07:20”, the location from the
-event's *Location*); other departures and automations read them there, as from any calendar.
-So a trip is planned once, can be seen, moved and frozen, and everything that depends on it
-(charging, warming the car, waking up) follows it. A trip of one's own can be written into one's
-own calendar with the same tags.
+“Plans” calendar (“Departure — School 07:20”, the location from the event's *Location*); other
+calendar sensors and automations read them there, as from any calendar. So a trip is planned
+once, can be seen, moved and frozen, and everything that depends on it (charging, warming the
+car, waking up) follows it. A trip of one's own can be written into one's own calendar with the
+same tags. Zaya Planner still writes only to its own calendar: writing to people's calendars
+would need marks of “our” events and would mix people's edits with automations'.
 
-- A **mark** is a step with no action: a name and a moment, done when it comes.
-- `plan_departures` (departure sensor, name, add the location, days ahead, tags) makes a mark
-  for each departure from now to the end of a day. The marks of an owner are a **set**: those
-  that are there stay, new ones are made, those whose departures are gone are cancelled.
-  The rule “one next plan per owner” stays for `set_plan` and `plan_window`.
-- Departures get **Without tags** and **Calendars**; `find_events` gets `!#tag`.
-- The “Plans” calendar may be one of the chosen calendars; its changes are “time to plan”.
-- Zaya Planner still writes only to its own calendar: writing to people's calendars would need
-  marks of “our” events and would mix people's edits with automations'.
+0.12 had an action of its own for departures (`plan_departures`). That was a mistake: no action
+is made for one task (departures, watering, heating). Instead (0.13):
+
+- **Calendar sensor** (*Add calendar sensor*, it replaces *Add departure*): events with tags,
+  without tags, of some calendars; their start or end; earlier or later by an offset from a key
+  or a default one; a **horizon**; only the first of the day. The state is the next time (so the
+  sensor works in every standard form); with a horizon the attribute `times` lists every time
+  within it, with its event. Departures of 0.12 are moved over: the travel time is an offset to
+  subtract. The subentry key stays `departure`, so sensors made then stay.
+- **Plan marks** (`plan_marks`): a mark at the time of any entity plus minutes, or at each time
+  it lists. A mark is a step with no action: a name and a moment, done when it comes.
+- **Turn on for a while** (`plan_window`): when the start and the end are the same entity with a
+  list, a window for each time; windows that overlap become one.
+- The windows and marks of an owner are a **set**: those that are there stay, new ones are made,
+  those whose times are gone are cancelled; one that would overlap a frozen or running plan is
+  not made. `set_plan` keeps “one next plan per owner”.
+- An entity that is `unavailable` (a calendar sensor before the calendars are read) changes
+  nothing; `unknown` (no time) cancels the owner's planned windows or marks.
+- `find_events` gets `!#tag`; the “Plans” calendar may be one of the chosen calendars; its
+  changes are “time to plan”.
 
 ## 4. Plans
 
