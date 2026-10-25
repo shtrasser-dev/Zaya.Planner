@@ -162,8 +162,9 @@ is made for one task (departures, watering, heating). Instead (0.13):
   sensor works in every standard form); with a horizon the attribute `times` lists every time
   within it, with its event. Departures of 0.12 are moved over: the travel time is an offset to
   subtract. The subentry key stays `departure`, so sensors made then stay.
-- **Plan marks** (`plan_marks`): a mark at the time of any entity plus minutes, or at each time
-  it lists. A mark is a step with no action: a name and a moment, done when it comes.
+- **Plan marks** (`plan_marks`): a mark at the time of any entities plus minutes, or at each time
+  they list; the times of all of them make one set (0.14: “take there” and “pick up” sensors are
+  both departures). A mark is a step with no action: a name and a moment, done when it comes.
 - **Turn on for a while** (`plan_window`): when the start and the end are the same entity with a
   list, a window for each time; windows that overlap become one.
 - The windows and marks of an owner are a **set**: those that are there stay, new ones are made,

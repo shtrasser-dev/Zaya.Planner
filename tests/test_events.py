@@ -611,6 +611,46 @@ async def test_plan_marks(
     assert [e.data["summary"] for e in done] == ["Departure — School"]
 
 
+async def test_plan_marks_from_several_sensors(
+    hass: HomeAssistant,
+    calendars: dict[str, FakeCalendar],
+    config_entry: MockConfigEntry,
+    frozen_now,
+) -> None:
+    """“Take there” from the start of lessons, “pick up” from their end: one set of departures."""
+    calendars["masha"].set(
+        [
+            event("Maths", "2026-10-22T08:00:00", "2026-10-22T08:35:00", LESSON, "School"),
+            event("Maths", "2026-10-23T08:00:00", "2026-10-23T08:35:00", LESSON, "School"),
+        ]
+    )
+    lessons = {"tags": ["leaf"], "calendars": ["calendar.masha"], "horizon": {"days": 2}}
+    await setup_sensors(
+        hass,
+        config_entry,
+        frozen_now,
+        calendar_sensor("Take", **lessons),
+        calendar_sensor("Pick up", edge="end", **lessons),
+    )
+    # The same sensor twice: a time given twice is one mark
+    marks = await plan_marks(
+        hass, time_entity=["sensor.take", "sensor.pick_up", "sensor.take"]
+    )
+    assert marks == [
+        ("planned", "2026-10-22T07:20:00+03:00", "Departure — School"),
+        ("planned", "2026-10-22T07:55:00+03:00", "Departure — School"),
+        ("planned", "2026-10-23T07:20:00+03:00", "Departure — School"),
+        ("planned", "2026-10-23T07:55:00+03:00", "Departure — School"),
+    ]
+
+    # One of them is unavailable: nothing changes
+    hass.states.async_set("sensor.pick_up", "unavailable")
+    assert await plan_marks(hass, time_entity=["sensor.take", "sensor.pick_up"]) == marks
+    # Only “take there” now: the “pick up” marks are cancelled
+    marks = await plan_marks(hass, time_entity=["sensor.take"])
+    assert [m[0] for m in marks] == ["planned", "cancelled", "planned", "cancelled"]
+
+
 async def test_plan_window_for_each_time(
     hass: HomeAssistant,
     calendars: dict[str, FakeCalendar],

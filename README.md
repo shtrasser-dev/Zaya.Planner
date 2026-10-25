@@ -220,12 +220,15 @@ gone), the owner's planned windows are cancelled; if it is `unavailable`, nothin
 ```
 
 **`zaya_planner.plan_marks`** “Plan marks” — a **mark** on the Plans calendar at the time of an
-entity: **Time of** (a calendar sensor, Sun “Next sunrise”, a date and time helper), **Offset**
+entity: **Time of** (one or more: calendar sensors, Sun “Next sunrise”, a date and time helper), **Offset**
 (minutes), **Name** (“Departure”; empty: the event's name), **Add the location** (“Departure —
 School”), **Tags**. From a calendar sensor with a horizon, a mark at each time it lists. A mark is
 a plan of one step that does nothing: a moment with a name, done when it comes. Calendar sensors
 and automations read the marks on the Plans calendar (choose it among the calendars in the
-settings). The marks of an owner are a set, as the windows above.
+settings). The times of all the entities make one set of marks of the owner, as the windows
+above: e.g. “take there” (the start of lessons minus the travel time) and “pick up” (their end
+minus it) are both departures. A time given twice is one mark; while an entity is `unavailable`,
+nothing changes.
 
 ```yaml
 - action: zaya_planner.plan_marks

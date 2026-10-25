@@ -152,7 +152,7 @@ PLAN_WINDOW_SCHEMA = probatio.Schema(
 PLAN_MARKS_SCHEMA = probatio.Schema(
     {
         probatio.Optional(ATTR_OWNER): cv.string,
-        probatio.Required(ATTR_TIME_ENTITY): cv.entity_id,
+        probatio.Required(ATTR_TIME_ENTITY): cv.entity_ids,
         probatio.Optional(ATTR_OFFSET, default=0): probatio.Coerce(int),
         probatio.Optional(ATTR_SUMMARY, default=""): cv.string,
         probatio.Optional(ATTR_ADD_LOCATION, default=True): cv.boolean,
@@ -471,25 +471,37 @@ async def _async_plan_window(call: ServiceCall) -> None:
 
 
 async def _async_plan_marks(call: ServiceCall) -> None:
-    """A mark at the time of an entity, or at each time it lists: the owner's marks."""
+    """A mark at the time of each entity, or at each time it lists: the owner's marks.
+
+    The times of all the entities make one set (e.g. “take there” from the start
+    of events and “pick up” from their end: both are departures); a time given
+    twice is one mark. While any entity is unavailable, nothing changes.
+    """
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
     owner = await _async_owner(call)
     tags = _tags(hass, call.data.get(ATTR_TAGS))
-    entity_id = call.data[ATTR_TIME_ENTITY]
-    if (times := _entity_times(hass, entity_id)) is None:
-        return
-    state = hass.states.get(entity_id)
     now = dt_util.utcnow()
     offset = timedelta(minutes=call.data[ATTR_OFFSET])
-    plans: list[tuple[str, list[Step]]] = []
-    for at, info in times:
-        if (at := at + offset) <= now:
-            continue
-        name = call.data[ATTR_SUMMARY] or info.get("summary") or (state.name if state else entity_id)
-        if call.data[ATTR_ADD_LOCATION] and (location := info.get("location")):
-            name = f"{name} — {location}"
-        plans.append((name, [Step(at=at, action="", name=name)]))
+    marks: dict[datetime, str] = {}
+    for entity_id in call.data[ATTR_TIME_ENTITY]:
+        if (times := _entity_times(hass, entity_id)) is None:
+            return
+        state = hass.states.get(entity_id)
+        for at, info in times:
+            if (at := at + offset) <= now or at in marks:
+                continue
+            name = (
+                call.data[ATTR_SUMMARY]
+                or info.get("summary")
+                or (state.name if state else entity_id)
+            )
+            if call.data[ATTR_ADD_LOCATION] and (location := info.get("location")):
+                name = f"{name} — {location}"
+            marks[at] = name
+    plans = [
+        (name, [Step(at=at, action="", name=name)]) for at, name in sorted(marks.items())
+    ]
     await manager.async_set_plans(owner, plans, tags=tags, display=DISPLAY_SPAN)
 
 

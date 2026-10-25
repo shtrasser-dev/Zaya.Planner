@@ -377,7 +377,7 @@
     },
     "plan_marks": {
       "name": "Plan marks",
-      "description": "A mark on the “Plans” calendar at the time of an entity plus minutes: “Departure — School 07:20”. From a calendar sensor with a horizon, a mark at each time it lists. Marks that are there stay, new ones are made, marks of times that are gone are cancelled; frozen marks and marks a person moved or deleted are not touched.",
+      "description": "A mark on the “Plans” calendar at the time of each entity plus minutes: “Departure — School 07:20”. From a calendar sensor with a horizon, a mark at each time it lists. The times of all the entities make one set: marks that are there stay, new ones are made, marks of times that are gone are cancelled; frozen marks and marks a person moved or deleted are not touched.",
       "fields": {
         "summary": {
           "name": "Name",
@@ -385,7 +385,7 @@
         },
         "time_entity": {
           "name": "Time of",
-          "description": "An entity with a time: a calendar sensor, Sun “Next sunrise”, a date and time helper."
+          "description": "Entities with a time: calendar sensors (e.g. “take there” and “pick up”), Sun “Next sunrise”, a date and time helper. Their times make one set of marks."
         },
         "offset": {
           "name": "Offset",

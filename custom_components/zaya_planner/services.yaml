@@ -73,6 +73,7 @@ plan_marks:
       required: true
       selector:
         entity:
+          multiple: true
           filter:
             - domain: sensor
               device_class: timestamp
