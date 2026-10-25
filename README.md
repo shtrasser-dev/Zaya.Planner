@@ -40,26 +40,49 @@ Requires Home Assistant 2026.10 or newer.
 
 ## Example: charging the car before school
 
-Masha's calendar (a Local Calendar), weekdays:
+One calendar is kept by people, the other by automations:
 
+1. In Masha's calendar (a Local Calendar) a lesson says where to take her:
+
+   ```
+   Maths                              08:00–08:35, weekly Mon–Fri
+   Location: School
+   ───────────── description ─────────────
+   #leaf #take_there
+   Travel: 40:00
+   ```
+
+2. An automation puts the departures on the **Plans** calendar: “Departure — School 07:20”.
+3. Another automation charges the car for the first departure of the day.
+
+**Departures** (*Add departure* on the Zaya Planner page):
+
+| Departure | Calendars | Tags | Travel time | First of the day |
+|---|---|---|---|---|
+| “Leaf trips” → `sensor.leaf_trips` | Masha | `#leaf #take_there` | from `Travel` | off |
+| “Leaf departure” → `sensor.leaf_departure` | Plans, Dad | `#leaf #take_there` | 0 | on |
+
+**Automations**, made in the visual editor without templates:
+
+```yaml
+alias: Leaf departures
+triggers:
+  - trigger: device              # Zaya Planner: time to plan
+    domain: zaya_planner
+    device_id: <Zaya Planner device>
+    type: time_to_plan
+actions:
+  - action: zaya_planner.plan_departures
+    data:
+      departure: sensor.leaf_trips
+      summary: Departure
+      tags: [leaf, take_there, night]
 ```
-Maths                              07:00–07:35, weekly Mon–Fri
-───────────── description ─────────────
-#leaf #take_there
-Travel: 40:00
-```
-
-A **departure** (*Add departure* on the Zaya Planner page): “Leaf departure”, events with
-`#leaf`, leave for their start, travel time from `Travel` (30 minutes if an event has none),
-only the first of the day. It is the sensor `sensor.leaf_departure`: when to leave next.
-
-An **automation**, made in the visual editor without templates: “Turn on for a while” from two
-hours to half an hour before leaving:
 
 ```yaml
 alias: Leaf charging
 triggers:
-  - trigger: device              # Zaya Planner: time to plan
+  - trigger: device
     domain: zaya_planner
     device_id: <Zaya Planner device>
     type: time_to_plan
@@ -71,21 +94,22 @@ actions:
       start_entity: sensor.leaf_departure
       start_offset: -120
       end_entity: sensor.leaf_departure
-      end_offset: -30
+      end_offset: -20
       tags: [night]
 ```
 
-The plan belongs to the automation (the hidden owner).
+In the evening the **Plans** calendar shows “Departure — School 07:20” and “Leaf charging
+05:20–07:00”; at 22:00 an automation “Freeze for the night” freezes the `#night` plans (❄️), and
+no automation can change or cancel them any more. Move the departure to 07:00 on the Plans
+calendar and the charging follows it; write a trip of your own into Dad's calendar
+(`#leaf #take_there` in its description) and the car is charged for it too. If the charger does
+not answer, the plan fails and you are notified.
 
-For more logic (several cars, conditions, numbers worked out) put the steps in a **planning
-module**: a script with fields that the automation calls, as a form. A module that should own its
-plan whoever calls it sets `owner: "{{ this.entity_id }}"`; field defaults of a script apply in
-the form only, so templates use `{{ margin | default(30) }}`.
-
-In the evening the plan “Leaf charging 04:20–05:50” is on the **Plans** calendar; at 22:00 an
-automation “Freeze for the night” freezes the `#night` plans (❄️), and no automation can change or
-cancel them any more. If the charger does not answer, the plan fails and you are notified
-(a plan made with `add_step` and `set_plan` may run failure instructions instead).
+Each plan belongs to the automation that made it (the hidden owner). For more logic (several
+cars, conditions, numbers worked out) put the steps in a **planning module**: a script with
+fields that the automation calls, as a form. A module that should own its plan whoever calls it
+sets `owner: "{{ this.entity_id }}"`; field defaults of a script apply in the form only, so
+templates use `{{ margin | default(30) }}`.
 
 ## Calendars and tags
 
@@ -110,8 +134,8 @@ A mistake repeated in a series is one error. A new error is notified.
 
 ### `zaya_planner.find_events`: find events by tags
 
-`filter`: one condition per line: `#tag` (the tag is there), `Key: value` (the attribute has
-this value), `Key` (the attribute is there); empty: all events. `calendars`: some of the chosen
+`filter`: one condition per line: `#tag` (the tag is there), `!#tag` (it is not), `Key: value`
+(the attribute has this value), `Key` (the attribute is there); empty: all events. `calendars`: some of the chosen
 ones (empty: all). `start`, `end`: the period (now and 8 days by default). `first_of_day`: only
 the first matching event of each day.
 
@@ -119,7 +143,7 @@ the first matching event of each day.
 minus it (none if the event has no such duration). `only_future`: only events whose `at` has
 not come yet.
 
-Response: `{events: [{calendar, summary, at, start, end, all_day, tags, attributes, description}]}`.
+Response: `{events: [{calendar, summary, at, start, end, all_day, location, tags, attributes, description}]}`.
 Words not in the dictionary and calendars not chosen are refused.
 
 ### Departures: when to leave
@@ -132,14 +156,16 @@ leave for the next event with the tags. The form:
 |---|---|
 | Name | The name of the sensor |
 | Events with tags | The event has all these tags (chosen from the dictionary) |
+| Without tags | The event has none of these tags (e.g. `#self`: she goes by herself) |
+| Calendars | Events of these calendars only (empty: all the chosen ones), e.g. the children's calendars, or *Plans* for the marks of *Plan departures* |
 | Leave | For the start of the event (take there) or for its end (pick up) |
 | Travel time from key | The key whose value in the event is the travel time (`Travel: 00:40:00`); empty: always the time below |
-| If the event has none | The travel time when the event does not say it (30 minutes by default) |
+| If the event has none | The travel time when the event does not say it (30 minutes by default; 0 for marks) |
 | Only the first of the day | After the first departure of a day, the next one is on another day |
 
 The departure is the event's start (or end) minus the travel time; all-day events are left out.
 With no such event in the next 8 days the sensor is `unknown`. Attributes: `summary`,
-`calendar`, `start`, `end` of the event, `travel` and `default_travel` (the event has no
+`calendar`, `start`, `end`, `location` of the event, `travel` and `default_travel` (the event has no
 travel time of its own). An event without a travel time (or with one that is not a duration) is
 listed in *Errors in events*. When a departure passes it is time to plan. Change or delete a
 departure with ⋮ on its line on the integration page.
@@ -180,6 +206,22 @@ next plan is cancelled; frozen and running plans stay.
     start_entity: sensor.sun_next_setting
     end_entity: sensor.sun_next_rising
     tags: [night]
+```
+
+**`zaya_planner.plan_departures`** “Plan departures” — a **mark** on the Plans calendar for each
+departure of a departure sensor, from now to the end of a day: **Departure** (the sensor),
+**Name** (“Departure”; empty: the event's name), **Add the location** (“Departure — School”),
+**Days ahead** (1: today and tomorrow), **Tags**. A mark is a plan of one step that does nothing:
+a moment with a name, done when it comes. Other departures and automations read the marks on the
+Plans calendar (choose it among the calendars in the settings). The marks are a set: those that
+are there already stay, new ones are made, marks of departures that are gone are cancelled.
+
+```yaml
+- action: zaya_planner.plan_departures
+  data:
+    departure: sensor.leaf_trips
+    summary: Departure
+    tags: [leaf, take_there]
 ```
 
 For other plans, the building blocks:
@@ -224,6 +266,9 @@ shown in its calendar event.
 
 **A person** can still cancel or move a plan: delete or move its event on the **Plans** calendar
 (Home Assistant asks to confirm a deletion), or call `cancel_plan` / `set_plan` with `force: true`.
+**What a person decided stays:** a moved plan is frozen at once, and a plan a person moved or
+deleted is not made again while its owner plans the same. When the owner plans something else
+(the lesson moved to another time), that is made.
 
 ### Running a plan
 
@@ -267,7 +312,7 @@ departure passes, when a plan ends, and every 15 minutes. Add your own triggers 
 
 | Entity | Shows |
 |---|---|
-| `calendar.zaya_planner_plans` “Plans” | An event per plan, from its first step to its last, with the steps in the description. ❄️ frozen, ⏳ running, ✅ done, ❌ failed. Delete an event to cancel the plan, move it to move the plan |
+| `calendar.zaya_planner_plans` “Plans” | An event per plan, from its first step to its last, with the steps in the description. ❄️ frozen, ⏳ running, ✅ done, ❌ failed. Delete an event to cancel the plan, move it to move the plan (it is frozen then). Can be one of the calendars Zaya Planner reads |
 | `sensor.zaya_planner_next_step` “Next step” | When the next step is due; the plan and the step in attributes |
 | `sensor.zaya_planner_failed_plans` “Failed plans” | Number of failed plans; the list in the `plans` attribute |
 | `sensor.zaya_planner_plans` “Plans” | Number of open plans; **all** plans in the `plans` attribute |

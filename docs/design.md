@@ -143,6 +143,25 @@ time; all-day events are left out; nothing in 8 days: unknown. Events without a 
 with one that is not a duration, go to “Errors in events”. Automations use it as “Time of” in
 “Turn on for a while” with offsets (−120 and −30 for the Leaf).
 
+### 3.8 Departures as marks (2026-10-25)
+
+One calendar is kept by people, another by automations. An automation puts **marks** on the
+“Plans” calendar with `plan_departures` (“Departure — School 07:20”, the location from the
+event's *Location*); other departures and automations read them there, as from any calendar.
+So a trip is planned once, can be seen, moved and frozen, and everything that depends on it
+(charging, warming the car, waking up) follows it. A trip of one's own can be written into one's
+own calendar with the same tags.
+
+- A **mark** is a step with no action: a name and a moment, done when it comes.
+- `plan_departures` (departure sensor, name, add the location, days ahead, tags) makes a mark
+  for each departure from now to the end of a day. The marks of an owner are a **set**: those
+  that are there stay, new ones are made, those whose departures are gone are cancelled.
+  The rule “one next plan per owner” stays for `set_plan` and `plan_window`.
+- Departures get **Without tags** and **Calendars**; `find_events` gets `!#tag`.
+- The “Plans” calendar may be one of the chosen calendars; its changes are “time to plan”.
+- Zaya Planner still writes only to its own calendar: writing to people's calendars would need
+  marks of “our” events and would mix people's edits with automations'.
+
 ## 4. Plans
 
 ### 4.1 What a plan is
@@ -241,6 +260,10 @@ and marked in the plan's attributes. No notification.
 - In the **“Plans” calendar** (the integration's calendar): deleting a plan's event cancels the plan
   (Home Assistant asks to confirm); moving it moves all its steps. This works for frozen plans too.
 - In scripts and actions: `cancel_plan` / `set_plan` with `force: true`.
+- **What a person decided stays** (2026-10-25): a moved plan is frozen at once. A plan keeps
+  its steps as its owner made them; a plan a person moved or deleted is not made again while
+  its owner plans those same steps. When the owner plans something else (the lesson moved),
+  that is made.
 
 ## 5. Execution
 
