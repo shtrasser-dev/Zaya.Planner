@@ -277,6 +277,13 @@ and marked in the plan's attributes. No notification.
   its steps as its owner made them; a plan a person moved or deleted is not made again while
   its owner plans those same steps. When the owner plans something else (the lesson moved),
   that is made.
+- **A decision can be undone** (0.15, 2026-10-27): a plan a person deleted stays on the calendar
+  as 🚫 (description unchanged); saving it brings it back (frozen), deleting it again forgets the
+  decision. Saving a plan without a new time changes nothing; a changed name or description is
+  refused. Searches of Zaya Planner skip 🚫 plans; they are kept until their own time is past the
+  retention period. Statuses of Home Assistant calendars do not exist, so the two buttons of the
+  standard event dialog are all there is; tags were considered (they only work for marks read by
+  sensors, not for plans that switch devices).
 
 ## 5. Execution
 

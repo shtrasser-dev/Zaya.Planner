@@ -284,6 +284,21 @@ shown in its calendar event.
 deleted is not made again while its owner plans the same. When the owner plans something else
 (the lesson moved to another time), that is made.
 
+A plan a person deleted **stays on the Plans calendar** as `🚫 Name` (its description as it was),
+so the decision can be seen and changed with the same two buttons:
+
+| On the Plans calendar | A plan | A plan shown as 🚫 |
+|---|---|---|
+| **Delete** | Cancelled by a person: shown as 🚫, not run, not made again | The decision is forgotten: the event goes, and the owner decides again |
+| **Save** with another time | Moved and frozen | Brought back at that time, frozen |
+| **Save** as it is | Nothing changes | Brought back at its time, frozen |
+
+Only the time can be changed there: the name and the description are the plan's, and a change
+to them is refused. A plan that has started cannot be brought back, nor to a time that has
+passed. Calendar sensors and `find_events` do not find 🚫 plans (Home Assistant's own calendar
+trigger still sees them). A plan a person cancelled is kept until its time is older than
+*Keep finished plans*, so that its owner does not make it again meanwhile.
+
 ### Running a plan
 
 - When a step is due, its action runs: the built-in **`zaya_planner.ensure_state`** turns devices
@@ -326,7 +341,7 @@ calendar sensor's time passes, when a plan ends, and every 15 minutes. Add your 
 
 | Entity | Shows |
 |---|---|
-| `calendar.zaya_planner_plans` “Plans” | An event per plan, from its first step to its last, with the steps in the description. ❄️ frozen, ⏳ running, ✅ done, ❌ failed. Delete an event to cancel the plan, move it to move the plan (it is frozen then). Can be one of the calendars Zaya Planner reads |
+| `calendar.zaya_planner_plans` “Plans” | An event per plan, from its first step to its last, with the steps in the description. ❄️ frozen, ⏳ running, ✅ done, ❌ failed, 🚫 cancelled by a person. Delete an event to cancel the plan, move it to move the plan (it is frozen then); see *Freezing* for 🚫. Can be one of the calendars Zaya Planner reads |
 | `sensor.zaya_planner_next_step` “Next step” | When the next step is due; the plan and the step in attributes |
 | `sensor.zaya_planner_failed_plans` “Failed plans” | Number of failed plans; the list in the `plans` attribute |
 | `sensor.zaya_planner_plans` “Plans” | Number of open plans; **all** plans in the `plans` attribute |
