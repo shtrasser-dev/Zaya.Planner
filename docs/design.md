@@ -350,8 +350,9 @@ are the user's.
   errors, or one logbook line).
 - One owner rule: `set_plan` keeps one next plan, windows and marks are sets. Worth unifying
   only when a planning module needs several plans in one run.
-- Texts of the logbook and of plan descriptions are in `messages.py`, not in the translation
-  files; labels of plan descriptions (“Status:”) could clash with a key of the dictionary.
+- Labels of plan descriptions (“Status:”) could clash with a key of the dictionary. (The texts
+  of the logbook, notifications and plan descriptions are in the translation files, under
+  `common`, since 0.15.2.)
 
 ## 11. Later
 

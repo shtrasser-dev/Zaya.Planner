@@ -33,6 +33,7 @@ from .const import (
 )
 from .events import EventReader
 from .executor import Executor
+from .messages import async_load_messages
 from .planning import TimeToPlan
 from .services import async_setup_services
 from .store import PlanManager
@@ -68,6 +69,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ZayaPlannerConfigEntry) -> bool:
     """Set up Zaya Planner from a config entry."""
+    # Texts of the logbook, notifications and plan descriptions
+    await async_load_messages(hass)
     manager = PlanManager(hass, entry.entry_id)
     await manager.async_load()
     executor = Executor(hass, entry, manager)

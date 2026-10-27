@@ -1,138 +1,30 @@
-"""Logbook and notification texts.
+"""Texts of the logbook, notifications and plan descriptions.
 
-Home Assistant translates only UI strings, so free-form messages are kept here
-and picked by the language of the Home Assistant instance.
+They are kept under `common` in the translation files and loaded once, when
+Zaya Planner is set up, in the language of Home Assistant (English where a
+text has no translation).
 """
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.translation import async_get_translations
 
-_MESSAGES: dict[str, dict[str, str]] = {
-    "en": {
-        "plan_created": "plan “{summary}” made: starts {start}",
-        "plan_updated": "plan “{summary}” changed: starts {start}",
-        "plan_cancelled": "plan “{summary}” cancelled",
-        "plan_moved": "plan “{summary}” moved by a person: starts {start}",
-        "plan_restored": "plan “{summary}” brought back by a person: starts {start}",
-        "plan_forgotten": "cancelling plan “{summary}” forgotten: its owner decides again",
-        "plan_frozen": "plan “{summary}” frozen: it starts {start} and will not change any more",
-        "plan_unfrozen": "plan “{summary}” unfrozen: its owner may change it again",
-        "plan_done": "plan “{summary}” done",
-        "plan_failed": "plan “{summary}” failed: {step}: {reason}",
-        "step_error": "plan “{summary}”: {step}: {reason}; next attempt at {next}",
-        "conflict_change": "plan “{summary}” is frozen ({frozen}); {owner} wanted to change it at {now}",
-        "conflict_cancel": "plan “{summary}” is frozen ({frozen}); {owner} wanted to cancel it at {now}",
-        "instructions_failed": "failure instructions {script} failed: {reason}",
-        "notify_title_error": "Zaya Planner: step error",
-        "notify_error": "“{summary}”, {step}: {reason}. Retrying, next attempt at {next}.",
-        "notify_title_failed": "Zaya Planner: plan failed",
-        "notify_failed": "“{summary}”, {step}: {reason}. The rest of the plan is not run.",
-        "reason_no_ok": "the script did not answer {{ok: true/false}}",
-        "reason_timeout": "the script did not finish in {seconds} s",
-        "reason_not_found": "script {action} not found",
-        "reason_unknown": "no reason given",
-        "reason_restart": "Home Assistant restarted during the attempt",
-        "reason_late": "due {due}, now too late to start",
-        "reason_unavailable": "not connected",
-        "reason_not_confirmed": "did not confirm the command",
-        "reason_manual": "cancelled by a person",
-        "reason_owner": "cancelled by its owner",
-        "state_on": "on",
-        "state_off": "off",
-        "plan_status_planned": "planned",
-        "plan_status_frozen": "frozen",
-        "plan_status_running": "running",
-        "plan_status_done": "done",
-        "plan_status_failed": "failed",
-        "plan_status_cancelled": "cancelled",
-        "step_status_planned": "not run yet",
-        "step_status_waiting": "waiting for its turn",
-        "step_status_running": "running",
-        "step_status_retrying": "retrying",
-        "step_status_done": "done",
-        "step_status_failed": "not done",
-        "step_status_cancelled": "cancelled",
-        "label_status": "Status",
-        "label_owner": "Owner",
-        "label_frozen": "Frozen",
-        "label_reason": "Reason",
-        "label_conflicts": "Attempts to change it",
-        "notify_title_event_errors": "Zaya Planner: errors in events",
-        "event_where": "{summary} ({calendar}, {day})",
-        "event_unknown_tag": "{where}: tag #{value} is not in the dictionary",
-        "event_empty_value": "{where}: “{value}” has no value",
-        "event_too_long": "{where}: the event is longer than a day, check its dates",
-        "event_no_calendar": "Calendar {calendar} is not found",
-        "event_no_offset": "{where}: no “{value}”, the default offset is used",
-        "event_not_duration": "{where}: “{value}” is not a duration like 00:40:00, the default offset is used",
-    },
-    "ru": {
-        "plan_created": "план «{summary}» составлен: начало {start}",
-        "plan_updated": "план «{summary}» изменён: начало {start}",
-        "plan_cancelled": "план «{summary}» отменён",
-        "plan_moved": "план «{summary}» перенесён вручную: начало {start}",
-        "plan_restored": "план «{summary}» возвращён вручную: начало {start}",
-        "plan_forgotten": "отмена плана «{summary}» забыта: владелец снова решает сам",
-        "plan_frozen": "план «{summary}» заморожен: начнётся {start} и больше не изменится",
-        "plan_unfrozen": "план «{summary}» разморожен: владелец снова может его менять",
-        "plan_done": "план «{summary}» выполнен",
-        "plan_failed": "план «{summary}» сломан: {step}: {reason}",
-        "step_error": "план «{summary}»: {step}: {reason}; следующая попытка в {next}",
-        "conflict_change": "план «{summary}» заморожен ({frozen}); {owner} хотел изменить его в {now}",
-        "conflict_cancel": "план «{summary}» заморожен ({frozen}); {owner} хотел отменить его в {now}",
-        "instructions_failed": "инструкция на случай сбоя {script} не выполнилась: {reason}",
-        "notify_title_error": "Zaya Planner: ошибка шага",
-        "notify_error": "«{summary}», {step}: {reason}. Повторяю, следующая попытка в {next}.",
-        "notify_title_failed": "Zaya Planner: план сломан",
-        "notify_failed": "«{summary}», {step}: {reason}. Остальные шаги плана не выполняются.",
-        "reason_no_ok": "скрипт не ответил {{ok: true/false}}",
-        "reason_timeout": "скрипт не завершился за {seconds} с",
-        "reason_not_found": "скрипт {action} не найден",
-        "reason_unknown": "причина не указана",
-        "reason_restart": "Home Assistant перезапустился во время попытки",
-        "reason_late": "срок {due}, начинать уже поздно",
-        "reason_unavailable": "нет связи",
-        "reason_not_confirmed": "не подтвердило команду",
-        "reason_manual": "отменён вручную",
-        "reason_owner": "отменён владельцем",
-        "state_on": "вкл",
-        "state_off": "выкл",
-        "plan_status_planned": "запланирован",
-        "plan_status_frozen": "заморожен",
-        "plan_status_running": "идёт",
-        "plan_status_done": "выполнен",
-        "plan_status_failed": "сломан",
-        "plan_status_cancelled": "отменён",
-        "step_status_planned": "не выполнялось",
-        "step_status_waiting": "ожидает очереди",
-        "step_status_running": "выполняется",
-        "step_status_retrying": "повтор после ошибки",
-        "step_status_done": "выполнено",
-        "step_status_failed": "не выполнено",
-        "step_status_cancelled": "отменено",
-        "label_status": "Статус",
-        "label_owner": "Владелец",
-        "label_frozen": "Заморожен",
-        "label_reason": "Причина",
-        "label_conflicts": "Попытки изменить",
-        "notify_title_event_errors": "Zaya Planner: ошибки в событиях",
-        "event_where": "{summary} ({calendar}, {day})",
-        "event_unknown_tag": "{where}: тега #{value} нет в словаре",
-        "event_empty_value": "{where}: у «{value}» нет значения",
-        "event_too_long": "{where}: событие длиннее суток, проверьте даты",
-        "event_no_calendar": "Календарь {calendar} не найден",
-        "event_no_offset": "{where}: нет «{value}», взято смещение по умолчанию",
-        "event_not_duration": "{where}: «{value}» — не длительность вида 00:40:00, взято смещение по умолчанию",
-    },
-}
+from .const import DOMAIN
+
+DATA_MESSAGES = f"{DOMAIN}_messages"
+CATEGORY = "common"
 
 
-def language(hass: HomeAssistant) -> str:
-    """Return the language of Home Assistant if there are texts in it, else English."""
-    code = (hass.config.language or "en").split("-")[0]
-    return code if code in _MESSAGES else "en"
+async def async_load_messages(hass: HomeAssistant) -> None:
+    """Load the texts in the language of Home Assistant, over the English ones."""
+    texts: dict[str, str] = {}
+    for language in dict.fromkeys(("en", hass.config.language)):
+        texts |= await async_get_translations(hass, language, CATEGORY, [DOMAIN])
+    prefix = f"component.{DOMAIN}.{CATEGORY}."
+    hass.data[DATA_MESSAGES] = {
+        key.removeprefix(prefix): text for key, text in texts.items() if key.startswith(prefix)
+    }
 
 
 def message(hass: HomeAssistant, key: str, **kwargs: object) -> str:
-    """Return the text in the language of Home Assistant (English by default)."""
-    texts = _MESSAGES[language(hass)]
-    return texts.get(key, _MESSAGES["en"][key]).format(**kwargs)
+    """Return a text in the language of Home Assistant."""
+    return hass.data.get(DATA_MESSAGES, {}).get(key, key).format(**kwargs)
