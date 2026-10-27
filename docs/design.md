@@ -330,6 +330,8 @@ are the user's.
   a plan whose time has come is not cancelled by a set.
 - 0.15: a plan a person cancelled stays as 🚫 and can be brought back or forgotten; texts in the
   translation files.
+- 0.17.1: devices of plans are those with on/off states; a device with modes or a sequence of
+  actions is a template switch of Home Assistant (a form of our own for climate later, if needed).
 - 0.16: “minus attribute” removed from `add_step`; 0.17: “event” too. Times of events are the
   work of calendar sensors; a step takes the time of an entity or a date and time.
 

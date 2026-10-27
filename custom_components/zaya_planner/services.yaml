@@ -10,7 +10,7 @@ plan_window:
         entity:
           multiple: true
           filter:
-            - domain: [switch, light, input_boolean, fan, climate, water_heater]
+            - domain: [switch, light, input_boolean, fan]
     start_entity:
       required: true
       selector:
@@ -152,7 +152,7 @@ add_step:
         entity:
           multiple: true
           filter:
-            - domain: [switch, light, input_boolean, fan, climate, water_heater]
+            - domain: [switch, light, input_boolean, fan]
     state:
       selector:
         select:
@@ -251,6 +251,8 @@ ensure_state:
       selector:
         entity:
           multiple: true
+          filter:
+            - domain: [switch, light, input_boolean, fan]
     state:
       required: true
       selector:

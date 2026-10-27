@@ -343,3 +343,24 @@ async def test_plan_whose_time_has_come_is_not_cancelled(
     await hass.async_block_till_done()
     plans = await get_plans(hass, owner="automation.trips")
     assert [p["status"] for p in plans] == ["done", "planned"]
+
+
+async def test_devices_with_modes_are_refused(
+    hass: HomeAssistant, setup_entry: MockConfigEntry
+) -> None:
+    """A climate device has modes, not on and off: it is refused, a template switch is the way."""
+    hass.states.async_set("climate.floor", "heat")
+    hass.states.async_set("sensor.departure", "2026-10-21T15:00:00+00:00")
+    window = {
+        "owner": "automation.floor",
+        "devices": ["switch.light", "climate.floor"],
+        "start_entity": "sensor.departure",
+        "start_offset": -60,
+        "end_entity": "sensor.departure",
+    }
+    with pytest.raises(ServiceValidationError) as err:
+        await call(hass, "plan_window", window)
+    assert err.value.translation_key == "not_on_off"
+    with pytest.raises(ServiceValidationError) as err:
+        await set_plan(hass, [step("2026-10-21T13:00:00+00:00", "climate.floor")])
+    assert err.value.translation_key == "not_on_off"

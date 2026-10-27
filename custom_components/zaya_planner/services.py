@@ -68,6 +68,7 @@ from .const import (
     DOMAIN,
     DRAFT_LIFETIME,
     EVENTS_HORIZON,
+    ON_OFF_DOMAINS,
     SERVICE_ADD_STEP,
     SERVICE_CANCEL_PLAN,
     SERVICE_ENSURE_STATE,
@@ -214,6 +215,12 @@ def _error(key: str, **placeholders: str) -> ServiceValidationError:
     )
 
 
+def _check_on_off(entity_ids: list[str]) -> None:
+    """Only devices whose state is on or off can be turned on or off and confirmed."""
+    if other := [e for e in entity_ids if e.split(".", 1)[0] not in ON_OFF_DOMAINS]:
+        raise _error("not_on_off", devices=", ".join(other))
+
+
 def _get_entry(hass: HomeAssistant) -> Any:
     """Return the loaded config entry of Zaya Planner."""
     entries = hass.config_entries.async_loaded_entries(DOMAIN)
@@ -293,6 +300,7 @@ async def _async_step(hass: HomeAssistant, data: dict[str, Any]) -> Step | None:
         if ATTR_STATE not in data:
             raise _error("state_required")
         action = f"{DOMAIN}.{SERVICE_ENSURE_STATE}"
+        _check_on_off(data[ATTR_DEVICES])
         step_data = {ATTR_ENTITY_ID: data[ATTR_DEVICES], ATTR_STATE: data[ATTR_STATE]}
     else:
         action = data[ATTR_ACTION]
@@ -383,6 +391,7 @@ async def _async_plan_window(call: ServiceCall) -> None:
     """
     hass = call.hass
     manager = _get_entry(hass).runtime_data.manager
+    _check_on_off(call.data[ATTR_DEVICES])
     owner = await _async_owner(call)
     tags = _tags(hass, call.data.get(ATTR_TAGS))
     start_entity = call.data[ATTR_START_ENTITY]
@@ -509,6 +518,7 @@ async def _async_get_plans(call: ServiceCall) -> ServiceResponse:
 
 
 async def _async_ensure_state(call: ServiceCall) -> ServiceResponse:
+    _check_on_off(call.data[ATTR_ENTITY_ID])
     ok, reason = await async_ensure_state(
         call.hass, call.data[ATTR_ENTITY_ID], call.data[ATTR_STATE]
     )

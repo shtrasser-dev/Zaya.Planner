@@ -263,6 +263,43 @@ is not made.
 
 Steps must be in time order.
 
+### Devices with modes, and sequences of actions
+
+*Devices* of a plan are switches, lights, input booleans and fans: their state is `on` or
+`off`, and that is what is turned and confirmed. A device with modes (floor heating:
+`off`/`heat`/`auto`, a water heater) or a sequence of actions is made into one switch with
+Home Assistant's own **template switch** helper (Settings → Devices & services → Helpers →
+Template → Switch): its *turn on* and *turn off* actions say what on and off mean, its state says
+when it is on. Zaya Planner then turns it on and off and waits for that state, as for any switch.
+
+For example, the car is charged only with the battery heater off:
+
+```yaml
+template:
+  - switch:
+      - name: Leaf charging
+        state: "{{ is_state('switch.leaf_charger', 'on') }}"
+        turn_on:
+          - action: switch.turn_off
+            target: { entity_id: switch.leaf_battery_heater }
+          - wait_template: "{{ is_state('switch.leaf_battery_heater', 'off') }}"
+            timeout: "00:00:20"
+            continue_on_timeout: false
+          - action: switch.turn_on
+            target: { entity_id: switch.leaf_charger }
+        turn_off:
+          - action: switch.turn_off
+            target: { entity_id: switch.leaf_charger }
+          - wait_template: "{{ is_state('switch.leaf_charger', 'off') }}"
+            timeout: "00:00:20"
+            continue_on_timeout: false
+          - action: switch.turn_on
+            target: { entity_id: switch.leaf_battery_heater }
+```
+
+If the heater does not turn off, charging is not turned on, the switch stays off, and the plan
+retries and then fails with a notification.
+
 ### Freezing
 
 “What you saw in the evening happens at night.” A frozen plan cannot be changed or cancelled by

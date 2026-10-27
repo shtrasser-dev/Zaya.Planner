@@ -61,6 +61,9 @@ SERVICE_PLAN_MARKS: Final = "plan_marks"
 
 # Built-in action a step may run besides scripts: turn on/off and confirm
 BUILTIN_ACTIONS: Final = frozenset({f"{DOMAIN}.{SERVICE_ENSURE_STATE}"})
+# Devices whose state is “on” or “off”. Others (climate, water heaters) have
+# modes: a template switch says what “on” and “off” mean for them
+ON_OFF_DOMAINS: Final = frozenset({"switch", "light", "input_boolean", "fan"})
 # How long ensure_state waits for a device to confirm
 ENSURE_STATE_TIMEOUT: Final = timedelta(seconds=20)
 

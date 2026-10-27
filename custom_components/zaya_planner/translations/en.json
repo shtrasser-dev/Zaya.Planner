@@ -187,7 +187,7 @@
         },
         "devices": {
           "name": "Devices",
-          "description": "Turn these devices on or off and wait until they confirm."
+          "description": "Turn these devices on or off and wait until they confirm: switches, lights, input booleans, fans. For a device with modes (floor heating, a water heater) or a sequence of actions, make a template switch helper that says what on and off mean."
         },
         "state": {
           "name": "Action",
@@ -279,7 +279,7 @@
       "fields": {
         "entity_id": {
           "name": "Devices",
-          "description": "Switches, lights, input booleans, fans…"
+          "description": "Switches, lights, input booleans, fans."
         },
         "state": {
           "name": "State",
@@ -327,7 +327,7 @@
       "fields": {
         "devices": {
           "name": "Devices",
-          "description": "One or more: switches, lights, input booleans…"
+          "description": "One or more: switches, lights, input booleans, fans. For a device with modes (floor heating) or a sequence of actions (turn the battery heater off, then charge), make a template switch helper and choose it here."
         },
         "start_entity": {
           "name": "Start",
@@ -454,6 +454,9 @@
     },
     "plan_not_restored": {
       "message": "This plan cannot be brought back: it has started, or the time chosen has passed."
+    },
+    "not_on_off": {
+      "message": "{devices}: only devices that are on or off can be turned on or off (switches, lights, input booleans, fans). For a device with modes, make a template switch helper that says what on and off mean."
     }
   },
   "device_automation": {
