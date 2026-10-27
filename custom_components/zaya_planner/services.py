@@ -39,7 +39,6 @@ from .const import (
     ATTR_ENTITY_ID,
     ATTR_END_ENTITY,
     ATTR_END_OFFSET,
-    ATTR_EVENT,
     ATTR_EVENTS,
     ATTR_FILTER,
     ATTR_FIRST_OF_DAY,
@@ -95,7 +94,6 @@ STEP_FIELDS = {
     # None (or empty): the step is left out, e.g. there is no such event
     probatio.Optional(ATTR_AT): probatio.Any(None, "", cv.datetime),
     probatio.Optional(ATTR_AT_ENTITY): probatio.Any(None, "", cv.entity_id),
-    probatio.Optional(ATTR_EVENT): probatio.Any(None, cv.string),
     # Minutes later (plus) or earlier (minus)
     probatio.Optional(ATTR_OFFSET, default=0): probatio.Coerce(int),
     # What: devices to turn on/off, or an action with data
@@ -283,25 +281,9 @@ def _entity_times(hass: HomeAssistant, entity_id: str) -> list[tuple[datetime, d
     return [] if at is None else [(at, dict(state.attributes))]
 
 
-async def _async_event_time(hass: HomeAssistant, text: str) -> datetime | None:
-    """Return the start of the next event that fits the filter."""
-    reader = _get_entry(hass).runtime_data.events
-    event_filter = Filter.parse(text)
-    if unknown := event_filter.unknown_words(reader.dictionary):
-        raise _error("unknown_filter_words", words=", ".join(unknown))
-    now = dt_util.utcnow()
-    events = await reader.async_find(event_filter, now, now + EVENTS_HORIZON, only_future=True)
-    if not events or (at := events[0].at) is None:
-        return None
-    if not isinstance(at, datetime):
-        # An all-day event: its day begins at midnight
-        at = datetime.combine(at, datetime.min.time())
-    return as_aware(at)
-
-
 async def _async_step(hass: HomeAssistant, data: dict[str, Any]) -> Step | None:
     """Return a step from action data (None without a time), or explain what is wrong."""
-    sources = [key for key in (ATTR_AT, ATTR_AT_ENTITY, ATTR_EVENT) if data.get(key)]
+    sources = [key for key in (ATTR_AT, ATTR_AT_ENTITY) if data.get(key)]
     if len(sources) > 1:
         raise _error("one_time_source")
     if not sources:
@@ -321,12 +303,10 @@ async def _async_step(hass: HomeAssistant, data: dict[str, Any]) -> Step | None:
             raise _error("action_not_allowed", action=action, prefix=prefix)
     if sources[0] == ATTR_AT:
         at: datetime | None = as_aware(data[ATTR_AT])
-    elif sources[0] == ATTR_AT_ENTITY:
-        at = _entity_time(hass, data[ATTR_AT_ENTITY])
     else:
-        at = await _async_event_time(hass, data[ATTR_EVENT])
+        at = _entity_time(hass, data[ATTR_AT_ENTITY])
     if at is None:
-        # The entity shows no time, or there is no such event: no step
+        # The entity shows no time (e.g. a calendar sensor with no such event): no step
         return None
     return Step(at=at + timedelta(minutes=data[ATTR_OFFSET]), action=action, data=step_data)
 

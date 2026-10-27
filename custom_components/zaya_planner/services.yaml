@@ -132,13 +132,6 @@ add_step:
             - domain: sensor
               device_class: timestamp
             - domain: input_datetime
-    event_time:
-      collapsed: true
-      fields:
-        event:
-          example: "#leaf #take_there"
-          selector:
-            text:
     date_time:
       collapsed: true
       fields:

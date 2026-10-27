@@ -729,26 +729,22 @@ async def test_plan_window_for_each_time(
     assert ("planned", "2026-10-22T03:20:00+03:00") not in plans
 
 
-async def test_step_at_an_event(
+async def test_step_at_the_time_of_a_calendar_sensor(
     hass: HomeAssistant,
     calendars: dict[str, FakeCalendar],
-    setup_entry: MockConfigEntry,
+    config_entry: MockConfigEntry,
+    frozen_now,
 ) -> None:
-    """A step at the next fitting event: its start, 70 minutes earlier."""
-    data = {"owner": "automation.charging", "event": "#leaf #отвезти"}
+    """A step at the time of a calendar sensor (the start minus the travel time), 30 minutes earlier."""
+    await setup_sensors(
+        hass, config_entry, frozen_now, calendar_sensor(tags=["leaf", "отвезти"])
+    )
+    data = {"owner": "automation.charging", "at_entity": "sensor.vyezd_leaf"}
     context = Context()
     await hass.services.async_call(
         DOMAIN,
         "add_step",
-        {**data, "offset": -70, "devices": ["switch.charger"], "state": "off"},
-        blocking=True,
-        context=context,
-    )
-    # No such event: no step
-    await hass.services.async_call(
-        DOMAIN,
-        "add_step",
-        {**data, "event": "#отвезти\nЕдут", "devices": ["switch.charger"], "state": "on"},
+        {**data, "offset": -30, "devices": ["switch.charger"], "state": "off"},
         blocking=True,
         context=context,
     )
@@ -756,15 +752,15 @@ async def test_step_at_an_event(
         DOMAIN, "set_plan", {"owner": "automation.charging"}, blocking=True, context=context
     )
     plan = await next_plan(hass, "automation.charging")
-    # School at 8:00 (Moscow)
+    # School at 8:00 (Moscow), 40 minutes away, 30 minutes to spare
     assert [s["at"] for s in plan["steps"]] == ["2026-10-22T06:50:00+03:00"]
 
-    # “Minus attribute” is gone: a calendar sensor does that
+    # The time of an event is the work of a calendar sensor: “event” is gone
     with pytest.raises(Exception):
         await hass.services.async_call(
             DOMAIN,
             "add_step",
-            {**data, "subtract": "В пути", "devices": ["switch.charger"], "state": "on"},
+            {"owner": "automation.charging", "event": "#leaf", "devices": ["switch.charger"], "state": "on"},
             blocking=True,
             context=context,
         )

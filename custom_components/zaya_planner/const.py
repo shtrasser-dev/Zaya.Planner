@@ -93,12 +93,10 @@ ATTR_FORCE: Final = "force"
 ATTR_DISPLAY: Final = "display"
 DISPLAY_SPAN: Final = "span"
 DISPLAY_STEPS: Final = "steps"
-# Where the time of a step comes from: a date and time (at), the time an entity
-# shows (at_entity), or the start of the next event of the chosen calendars that
-# fits a filter (event); then moved by `offset` minutes (minus: earlier). An
-# offset from an attribute of the event is the work of a calendar sensor
+# Where the time of a step comes from: a date and time (at) or the time an entity
+# shows (at_entity: a calendar sensor for times of events); then moved by
+# `offset` minutes (minus: earlier)
 ATTR_AT_ENTITY: Final = "at_entity"
-ATTR_EVENT: Final = "event"
 ATTR_OFFSET: Final = "offset"
 ATTR_STATUS: Final = "status"
 ATTR_PLANS: Final = "plans"

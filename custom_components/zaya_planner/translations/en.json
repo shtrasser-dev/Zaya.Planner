@@ -171,15 +171,11 @@
   "services": {
     "add_step": {
       "name": "Add step",
-      "description": "Adds a step to the plan being made in this run. The time is one of: the time of an entity, the time of an event, a date and time; without a time the step is left out. Call “Set plan” after the steps.",
+      "description": "Adds a step to the plan being made in this run. Its time is the time of an entity (e.g. a calendar sensor) or a date and time; without a time the step is left out. After the steps, call “Set plan”.",
       "fields": {
         "at_entity": {
           "name": "Time of",
-          "description": "The time an entity shows: Sun “Next sunset”, a timestamp sensor, a date-and-time helper."
-        },
-        "event": {
-          "name": "Event",
-          "description": "The start of the next event of the chosen calendars that fits the filter: #tag, !#tag, Key: value, Key. For a time worked out from an attribute (travel time), use a calendar sensor in “Time of”."
+          "description": "The time an entity shows: a calendar sensor (times of events with tags), Sun “Next sunset”, a date and time helper."
         },
         "at": {
           "name": "Date and time",
@@ -207,9 +203,6 @@
         }
       },
       "sections": {
-        "event_time": {
-          "name": "Time of an event"
-        },
         "date_time": {
           "name": "Date and time"
         },
@@ -454,7 +447,7 @@
       "message": "Whose plan is it? Called outside an automation or script, give the owner."
     },
     "one_time_source": {
-      "message": "Give the time of a step one way: an entity, an event, or a date and time."
+      "message": "Give the time of a step one way: an entity or a date and time."
     },
     "only_time": {
       "message": "Only the time of a plan can be changed here: its name and description come from the automation that made it."

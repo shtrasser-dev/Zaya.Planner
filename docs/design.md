@@ -303,7 +303,7 @@ be run by hand from the script page, and may return an answer.
 |---|---|---|
 | Actions | `plan_window`, `plan_marks`, `add_step`, `set_plan`, `cancel_plan`, `freeze_plans`, `unfreeze_plans`, `get_plans`, `find_events`, `ensure_state` | Включить на время, Поставить отметки, Добавить шаг, Поставить план, Отменить план, Заморозить планы, Разморозить планы, Получить планы, Найти события, Включить или выключить и проверить |
 | Plan fields | `owner`, `summary`, `steps`, `tags`, `on_failure`, `display`, `force` | Владелец, Название, Шаги, Теги, При сбое, В календаре, Вручную |
-| Step fields | `at`, `at_entity`, `event`, `offset`, `devices`, `state`, `action`, `data` | Дата и время, Время из, Событие, Сдвиг, Устройства, Действие, Скрипт, Данные |
+| Step fields | `at`, `at_entity`, `offset`, `devices`, `state`, `action`, `data` | Дата и время, Время из, Сдвиг, Устройства, Действие, Скрипт, Данные |
 | Calendar sensor | subentry `departure` (the key of its first version): `tags`, `exclude_tags`, `calendars`, `edge`, `offset_key`, `sign`, `default_offset`, `horizon`, `first_of_day` | Сенсор календаря: События с тегами, Без тегов, Календари, Время события, Смещение из ключа, Смещение, Смещение по умолчанию, Горизонт, Только первое за день |
 | Calendar | `calendar.zaya_planner_plans` | Планы |
 | Sensors | `sensor.zaya_planner_next_step`, `sensor.zaya_planner_failed_plans`, `sensor.zaya_planner_plans`, `sensor.zaya_planner_event_errors`, `sensor.<name>` (calendar sensors) | Следующий шаг, Сломанные планы, Планы, Ошибки в событиях |
@@ -330,8 +330,8 @@ are the user's.
   a plan whose time has come is not cancelled by a set.
 - 0.15: a plan a person cancelled stays as 🚫 and can be brought back or forgotten; texts in the
   translation files.
-- 0.16: “minus attribute” removed from `add_step`: an offset from an attribute is the work of a
-  calendar sensor.
+- 0.16: “minus attribute” removed from `add_step`; 0.17: “event” too. Times of events are the
+  work of calendar sensors; a step takes the time of an entity or a date and time.
 
 ## 9. Steps
 
@@ -347,8 +347,6 @@ are the user's.
 
 ## 10. Open questions
 
-- “Time of an event” in `add_step` (its start): calendar sensors do more; remove it too? (“Minus
-  attribute” was removed in 0.16.)
 - Silent “nothing planned” (an unavailable or renamed entity, an end before the start, a
   person's decision): a way to see why an automation planned nothing (a sensor of planning
   errors, or one logbook line).
