@@ -362,9 +362,11 @@ Events for automations: `zaya_planner_plan_done` (`uid`, `owner`, `summary`) and
 ## Roadmap
 
 1. ✅ Calendars: chosen calendars, tag dictionary, errors in events, `find_events`.
-2. ✅ Plans: steps, owners, next plans, freezing, failure instructions, the Plans calendar.
-3. Planning modules on a test Home Assistant (charging, yard lights).
-4. Moving the real house over, one plan at a time.
+2. ✅ Plans: steps, owners, freezing, failure instructions, the Plans calendar, a person's decisions.
+3. ✅ Calendar sensors, marks, windows for each time; Leaf charging and yard lights on a test
+   Home Assistant.
+4. Checks on the test Home Assistant: freezing, restarts, unavailable devices.
+5. Moving the real house over, one plan at a time.
 
 ## Development
 

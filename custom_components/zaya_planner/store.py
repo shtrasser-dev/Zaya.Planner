@@ -1,9 +1,9 @@
 """Plan storage of Zaya Planner: owners, next plans, freezing, conflicts.
 
-An owner (an automation or a script) has at most one next plan, which it may
-change, plus the plans that are already frozen or running, which only a person
-may change. An owner of windows or marks (“Turn on for a while”, “Plan marks”)
-has a set of them instead, one for each time of its entity.
+An owner (an automation or a script) changes only its planned plans; the plans
+that are frozen or running only a person may change. With “Set plan” an owner
+has one next plan; with “Turn on for a while” and “Plan marks” a set of them,
+one for each time of its entities.
 
 What a person decided stays: a plan a person moved is frozen, and a plan a
 person moved or cancelled is not made again while its owner plans the same.
@@ -132,7 +132,7 @@ class PlanManager:
         on_failure: str | None = None,
         display: str = DISPLAY_SPAN,
         force: bool = False,
-    ) -> tuple[Plan | None, PlanResult]:
+    ) -> None:
         """Make `steps` the owner's next plan.
 
         The next plan must start after the owner's frozen and running plans end;
@@ -142,20 +142,20 @@ class PlanManager:
         now = dt_util.utcnow()
         tags = list(tags or [])
         if not force and (decided := self._decided(owner, steps)) is not None:
-            return decided, PlanResult.UNCHANGED
+            return
         locked = self._locked(owner)
         overlapping = [plan for plan in locked if steps[0].at <= plan.end]
         if overlapping:
             if any(_same_steps(plan.steps, steps) for plan in overlapping):
                 # Planned again while it is frozen or running: nothing to do
-                return overlapping[0], PlanResult.OVERLAPS
+                return
             frozen = [plan for plan in overlapping if plan.status == PlanStatus.FROZEN]
             running = [plan for plan in overlapping if plan.status == PlanStatus.RUNNING]
             if not force or running:
                 plan = (running or frozen)[0]
                 self._conflict(plan, "change")
                 await self._async_changed()
-                return plan, PlanResult.OVERLAPS if running else PlanResult.FROZEN
+                return
             for plan in frozen:
                 self._close(plan, PlanStatus.CANCELLED, message(self.hass, "reason_manual"))
 
@@ -167,7 +167,7 @@ class PlanManager:
         ):
             if overlapping:
                 await self._async_changed()
-            return plan, PlanResult.UNCHANGED
+            return
 
         if plan is None:
             plan = Plan(uid=uuid4().hex, owner=owner, steps=steps)
@@ -190,7 +190,6 @@ class PlanManager:
             )
         )
         await self._async_changed()
-        return plan, result
 
     async def async_set_plans(
         self,
@@ -279,13 +278,8 @@ class PlanManager:
         if changed:
             await self._async_changed()
 
-    async def async_cancel(
-        self, owner: str, *, force: bool = False
-    ) -> tuple[list[Plan], PlanResult]:
-        """Cancel the owner's planned plans; with `force` also its frozen and running ones.
-
-        Usually there is one planned plan; after “unfreeze plans” there may be more.
-        """
+    async def async_cancel(self, owner: str, *, force: bool = False) -> None:
+        """Cancel the owner's planned plans; with `force` also its frozen and running ones."""
         cancelled: list[Plan] = []
         for plan in self.find(owner=owner, statuses=[PlanStatus.PLANNED]):
             self._close(plan, PlanStatus.CANCELLED, message(self.hass, "reason_owner"))
@@ -299,13 +293,12 @@ class PlanManager:
             for plan in locked:
                 self._conflict(plan, "cancel")
             await self._async_changed()
-            return [], PlanResult.FROZEN
+            return
         if not cancelled:
-            return [], PlanResult.UNCHANGED
+            return
         for plan in cancelled:
             self.log(message(self.hass, "plan_cancelled", summary=plan.display_summary))
         await self._async_changed()
-        return cancelled, PlanResult.CANCELLED
 
     async def async_cancel_by_person(self, uid: str) -> Plan | None:
         """Cancel a plan whatever its state (deleted in the calendar)."""

@@ -107,7 +107,7 @@ class Plan:
     """A sequence of steps run as one whole, made by an owner.
 
     `uid` identifies the plan forever; `owner` is the automation or script that
-    made it (one next plan per owner).
+    made it.
     """
 
     uid: str

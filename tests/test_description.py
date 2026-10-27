@@ -10,7 +10,6 @@ from custom_components.zaya_planner.description import (
     Filter,
     Problem,
     Reading,
-    build,
     first_of_each_day,
     lines,
     tags,
@@ -30,13 +29,6 @@ def test_lines() -> None:
     """“Key: value” lines as written; tag lines and lines without a colon are not."""
     text = "#leaf: x\nВ пути : 00:40:00\nВзять форму\nАдрес: Ленина 5\n: nothing"
     assert lines(text) == [("В пути", "00:40:00"), ("Адрес", "Ленина 5")]
-
-
-def test_build() -> None:
-    """Empty values are left out, lists are joined."""
-    assert build(
-        [("Статус", "выполнена"), ("Ошибка", None), ("Устройства", ["Лампа", "Пол"]), ("Попыток", 2)]
-    ) == "Статус: выполнена\nУстройства: Лампа, Пол\nПопыток: 2"
 
 
 def test_read() -> None:

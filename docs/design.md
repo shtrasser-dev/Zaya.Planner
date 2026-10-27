@@ -35,61 +35,28 @@ Principles:
 
 ## 2. Example: charging the Leaf
 
-Masha's calendar (a Local Calendar), weekdays:
+Made with forms only (the README has the full example). Masha's calendar (a Local Calendar):
 
 ```
-Математика                          07:00–07:35, weekly Mon–Fri
+Математика                          08:00–08:35, weekly Mon–Fri
+Место: Школа
 ───────────── description ─────────────
-#leaf #отвезти
+#leaf #отвезти #запланировать
 Время в пути: 40:00
 ```
 
-**Planning module** (a script with fields, made in the visual script editor):
+1. **Calendar sensors** (3.8): “Leaf take there” — the start of `#leaf #отвезти` events minus
+   “Время в пути”; “Leaf pick up” — their end minus it; a horizon of two days.
+2. **Automation “Leaf departures”**: on “time to plan”, *Plan marks* from both sensors →
+   “Leaf departure — Школа 07:20” and “… 09:00” on the “Plans” calendar, tags `#leaf #выезд`.
+3. **Calendar sensor “Leaf first departure of the day”**: the “Plans” calendar, `#leaf #выезд`,
+   only the first of the day, no offset.
+4. **Automation “Leaf charging”**: *Turn on for a while* from that sensor, −90 / +20 minutes:
+   a window before the first departure of each day.
 
-```yaml
-script:
-  plan_leaf_charging:
-    alias: Планирование зарядки Leaf
-    fields:
-      departure: { selector: { datetime: {} } }
-      charge_minutes: { default: 90, selector: { number: { min: 0, max: 600 } } }
-    sequence:
-      - variables:
-          off_at: "{{ (departure | as_datetime) - timedelta(minutes=30) }}"
-          on_at: "{{ off_at - timedelta(minutes=charge_minutes) }}"
-      - action: zaya_planner.add_step
-        data: { owner: "{{ this.entity_id }}", at: "{{ on_at }}",
-                devices: [switch.leaf_charger], state: "on" }
-      - action: zaya_planner.add_step
-        data: { owner: "{{ this.entity_id }}", at: "{{ off_at }}",
-                devices: [switch.leaf_charger], state: "off" }
-      - action: zaya_planner.set_plan
-        data: { owner: "{{ this.entity_id }}", summary: Зарядка Leaf, tags: [ночь] }
-```
-
-**Automation** (visual editor): trigger “Zaya Planner: time to plan”; find the first `#leaf` event;
-if there is one, call the module with the departure; if not, cancel the module's plan.
-
-```yaml
-actions:
-  - action: zaya_planner.find_events
-    data: { filter: "#leaf", first_of_day: true }
-    response_variable: found
-  - if: "{{ found.events | count > 0 }}"
-    then:
-      - action: script.plan_leaf_charging
-        data:
-          departure: >
-            {{ (found.events[0].start | as_datetime)
-               - (found.events[0].attributes['Время в пути'] | as_timedelta) }}
-    else:
-      - action: zaya_planner.cancel_plan
-        data: { owner: script.plan_leaf_charging }
-```
-
-The plan “Зарядка Leaf: 04:50 on → 06:20 off” is on the “Plans” calendar in the evening; at 23:00
-it is frozen (❄️). If at 02:00 a mistake makes the automation cancel it, nothing changes, and the
-logbook says so. In the morning the car is charged.
+Move the departure on the “Plans” calendar and the charging follows it; delete it and the
+charging goes (the departure stays as 🚫 and can be brought back). With the tag `#ночь` and an
+automation “Freeze for the night” at 22:00, what was seen in the evening happens at night.
 
 ## 3. Calendars
 
@@ -334,43 +301,57 @@ be run by hand from the script page, and may return an answer.
 
 | What | Code | Russian |
 |---|---|---|
-| Actions | `add_step`, `set_plan`, `cancel_plan`, `get_plans`, `find_events`, `ensure_state` | Добавить шаг, Поставить план, Отменить план, Получить планы, Найти события, Включить или выключить и проверить |
-| Plan fields | `owner`, `summary`, `steps`, `tags`, `on_failure`, `force` | Владелец, Название, Шаги, Теги, При сбое, Вручную |
-| Step fields | `at`, `devices`, `state`, `action`, `data` | Когда, Устройства, Состояние, Действие, Данные |
+| Actions | `plan_window`, `plan_marks`, `add_step`, `set_plan`, `cancel_plan`, `freeze_plans`, `unfreeze_plans`, `get_plans`, `find_events`, `ensure_state` | Включить на время, Поставить отметки, Добавить шаг, Поставить план, Отменить план, Заморозить планы, Разморозить планы, Получить планы, Найти события, Включить или выключить и проверить |
+| Plan fields | `owner`, `summary`, `steps`, `tags`, `on_failure`, `display`, `force` | Владелец, Название, Шаги, Теги, При сбое, В календаре, Вручную |
+| Step fields | `at`, `at_entity`, `event`, `subtract`, `offset`, `devices`, `state`, `action`, `data` | Дата и время, Время из, Событие, Минус атрибут, Сдвиг, Устройства, Действие, Скрипт, Данные |
+| Calendar sensor | subentry `departure` (the key of its first version): `tags`, `exclude_tags`, `calendars`, `edge`, `offset_key`, `sign`, `default_offset`, `horizon`, `first_of_day` | Сенсор календаря: События с тегами, Без тегов, Календари, Время события, Смещение из ключа, Смещение, Смещение по умолчанию, Горизонт, Только первое за день |
 | Calendar | `calendar.zaya_planner_plans` | Планы |
-| Sensors | `sensor.zaya_planner_next_step`, `sensor.zaya_planner_failed_plans`, `sensor.zaya_planner_plans`, `sensor.zaya_planner_event_errors` | Следующий шаг, Сбойные планы, Планы, Ошибки в событиях |
+| Sensors | `sensor.zaya_planner_next_step`, `sensor.zaya_planner_failed_plans`, `sensor.zaya_planner_plans`, `sensor.zaya_planner_event_errors`, `sensor.<name>` (calendar sensors) | Следующий шаг, Сломанные планы, Планы, Ошибки в событиях |
+| Plan statuses | `planned`, `frozen` ❄️, `running` ⏳, `done` ✅, `failed` ❌, `cancelled` (🚫 when by a person) | Запланирован, Заморожен, Идёт, Выполнен, Сломан, Отменён |
 | Events | `zaya_planner_plan_done`, `zaya_planner_plan_failed` | — |
 | Trigger | `time_to_plan` | Пора планировать |
-| Options | lateness, retention, notifications, allowed actions, calendars, tags, keys | Допустимое опоздание первого шага, Хранить завершённые планы, Уведомления, Разрешённые действия, Календари, Теги, Ключи |
+| Options | lateness, retention, notifications, allowed actions, calendars, tags, keys | Допустимое опоздание первого шага, Хранить завершённые планы, Уведомления, Разрешённые скрипты шагов, Календари, Теги, Ключи |
 
-The word “task” goes; there are plans and steps. Statuses `skipped` and `done_with_errors` do not exist: a plan is done or failed.
+There are plans and steps, no tasks. Statuses `skipped` and `done_with_errors` do not exist: a
+plan is done or failed. The statuses, their names and the labels of plan descriptions are words of
+the planner itself (like `on`/`off` of a switch); the words of the house (tags, keys, names)
+are the user's.
 
-## 8. What changes in the code
+## 8. History of the code
 
-- **Goes**: moments (subentries, sensors, `moments.py`); `upsert`, `remove`, `list`, `plan_window`
-  (and `window.py`); the task model.
-- **Stays**: calendars, dictionary, `find_events`, errors in events, `ensure_state`, the executor's
-  retries and notifications, “time to plan”.
-- **New**: plans and steps in the store; `add_step`, `set_plan`, `cancel_plan`, `get_plans`;
-  freezing, owners, next plans; the “Plans” calendar with delete and move; “time to plan” on
-  calendar changes.
-- On upgrade, tasks and moments are removed (only the test Home Assistant has them).
+- 0.10: tasks and moments gave way to plans and steps; `add_step`, `set_plan`, freezing, the
+  “Plans” calendar. Planning actions answer nothing since 0.11.
+- 0.11: `plan_window` (“Turn on for a while”); departures (“Add departure”).
+- 0.12: marks (steps with no action); `!#tag`; what a person decided stays. The action
+  `plan_departures` of this version was made for one task and was replaced in 0.13.
+- 0.13: calendar sensors instead of departures (offset from a key, sign, horizon, first of the
+  day); `plan_marks`; windows for each listed time; windows and marks of an owner are a set.
+- 0.14: `plan_marks` from several entities. 0.14.1: the first of the day stays first once over;
+  a plan whose time has come is not cancelled by a set.
+- 0.15: a plan a person cancelled stays as 🚫 and can be brought back or forgotten.
 
 ## 9. Steps
 
-1. ✅ Task store, executor, `plan_window` (replaced by step 4).
-2. ✅ Calendars: chosen calendars, dictionary, errors in events, `find_events`.
-3. ✅ People, cars, own calendars and house plan removed.
-4. ✅ **Plans**: model, store, executor, freezing, actions, “Plans” calendar, sensors; moments
-   removed; “time to plan” on calendar changes.
-5. **Modules on the test Home Assistant**: Leaf charging and yard lights, as in section 2; README
-   with these examples.
+1. ✅ Calendars: chosen calendars, dictionary, errors in events, `find_events`.
+2. ✅ Plans: model, store, executor, freezing, actions, “Plans” calendar, sensors.
+3. ✅ Calendar sensors, marks, windows for each time; a person's decisions.
+4. ✅ Leaf departures and charging, yard lights on the test Home Assistant, made with forms.
+5. **Checks on the test Home Assistant**: freezing at night, a restart in the middle of a plan,
+   a device that is unavailable (retries, failure, notification), Home Assistant off longer
+   than the lateness limit.
 6. **Moving the real house over**: floor heating → lights → Leaf, the old YAML planner running in
    parallel until the new one has proved itself.
 
 ## 10. Open questions
 
-None at the moment.
+- “Time of an event” and “minus attribute” in : calendar sensors do it better; remove?
+- Silent “nothing planned” (an unavailable or renamed entity, an end before the start, a
+  person's decision): a way to see why an automation planned nothing (a sensor of planning
+  errors, or one logbook line).
+- One owner rule:  keeps one next plan, windows and marks are sets. Worth unifying
+  only when a planning module needs several plans in one run.
+- Texts of the logbook and of plan descriptions are in , not in the translation
+  files; labels of plan descriptions (“Status:”) could clash with a key of the dictionary.
 
 ## 11. Later
 

@@ -224,7 +224,7 @@
     },
     "set_plan": {
       "name": "Set plan",
-      "description": "Makes the steps added in this run the owner's next plan, replacing the one there was. With no steps it cancels the next plan. A frozen or running plan is not changed; a plan whose first step is in the past is not made (result past).",
+      "description": "Makes the steps added in this run the owner's next plan, replacing the one there was. With no steps it cancels the owner's planned plans. A frozen or running plan is not changed; a plan whose first step is in the past is not made.",
       "fields": {
         "owner": {
           "name": "Owner",
@@ -258,7 +258,7 @@
     },
     "cancel_plan": {
       "name": "Cancel plan",
-      "description": "Cancels the owner's next plan. Frozen and running plans stay unless forced.",
+      "description": "Cancels the owner's planned plans (the next one, or the windows and marks it planned). Frozen and running plans stay unless forced.",
       "fields": {
         "owner": {
           "name": "Owner",

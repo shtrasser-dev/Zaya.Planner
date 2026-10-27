@@ -92,7 +92,7 @@ DRAFTS = f"{DOMAIN}_drafts"
 
 STEP_FIELDS = {
     # When: one of a date and time, the time of an entity, the next fitting event.
-    # None (or empty): the step is left out, e.g. there is no departure
+    # None (or empty): the step is left out, e.g. there is no such event
     probatio.Optional(ATTR_AT): probatio.Any(None, "", cv.datetime),
     probatio.Optional(ATTR_AT_ENTITY): probatio.Any(None, "", cv.entity_id),
     probatio.Optional(ATTR_EVENT): probatio.Any(None, cv.string),

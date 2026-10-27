@@ -50,18 +50,6 @@ def lines(text: str | None) -> list[tuple[str, str]]:
     return pairs
 
 
-def build(fields: Iterable[tuple[str, object]]) -> str:
-    """Return “Key: value” lines; empty values are left out, lists joined with commas."""
-    result = []
-    for name, value in fields:
-        if isinstance(value, (list, tuple)):
-            value = ", ".join(str(item) for item in value)
-        if value is None or value == "":
-            continue
-        result.append(f"{name}: {value}")
-    return "\n".join(result)
-
-
 # ---------------------------------------------------------------- dictionary
 
 

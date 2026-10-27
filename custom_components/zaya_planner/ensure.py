@@ -1,4 +1,4 @@
-"""Built-in task action: turn devices on or off and wait until they confirm."""
+"""Built-in step action: turn devices on or off and wait until they confirm."""
 
 from __future__ import annotations
 

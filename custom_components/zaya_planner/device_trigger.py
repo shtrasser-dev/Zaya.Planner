@@ -33,7 +33,7 @@ async def async_get_triggers(
         for domain, identifier in device.identifiers
         if domain == DOMAIN
     }
-    if not entry_ids & set(device.config_entries):
+    if device.config_entry_id not in entry_ids:
         return []
     return [
         {

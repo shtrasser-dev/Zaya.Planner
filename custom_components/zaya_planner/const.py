@@ -148,17 +148,10 @@ class StepStatus(StrEnum):
 
 
 class PlanResult(StrEnum):
-    """What `set_plan` / `cancel_plan` did."""
+    """What became of a plan its owner planned (for the logbook)."""
 
     CREATED = "created"
     UPDATED = "updated"
-    # The same plan is there already
-    UNCHANGED = "unchanged"
-    CANCELLED = "cancelled"
-    # The plan starts before the owner's last frozen or running plan ends
-    OVERLAPS = "overlaps"
-    # It would change or cancel a frozen plan
-    FROZEN = "frozen"
 
 
 # Fired when rules should plan again (device trigger “time to plan”): Home
