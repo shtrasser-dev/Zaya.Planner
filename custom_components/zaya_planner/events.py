@@ -22,11 +22,13 @@ from .const import (
     CONF_CALENDARS,
     CONF_KEYS,
     CONF_TAGS,
+    DOMAIN,
     EVENTS_HORIZON,
     EVENTS_REFRESH_INTERVAL,
     LONGEST_TIMED_EVENT,
     SIGNAL_EVENTS_UPDATED,
     SUBENTRY_CALENDAR_SENSOR,
+    PlanStatus,
 )
 from .calendar_sensor import CalendarSensorSpec, EventTime, calculate
 from .description import Dictionary, Filter, Reading, by_start, first_of_each_day
@@ -219,7 +221,11 @@ class EventReader:
                 if errors is not None:
                     errors.append(EventError("no_calendar", entity_id))
                 continue
+            own = entity.platform is not None and entity.platform.platform_name == DOMAIN
             for event in events:
+                if own and self._is_cancelled(event.uid):
+                    # A plan a person cancelled: seen by people, not by searches
+                    continue
                 description = event.description or ""
                 event_start = _local(event.start)
                 found.append(
@@ -235,6 +241,11 @@ class EventReader:
                     )
                 )
         return sorted(found, key=by_start)
+
+    def _is_cancelled(self, uid: str | None) -> bool:
+        """Return True if an event of the “Plans” calendar is of a cancelled plan."""
+        plan = self.entry.runtime_data.manager.get((uid or "").split(":")[0])
+        return plan is not None and plan.status == PlanStatus.CANCELLED
 
     async def async_find(
         self,

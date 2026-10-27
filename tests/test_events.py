@@ -601,6 +601,11 @@ async def test_plan_marks(
     assert (await client.receive_json())["success"]
     marks = await plan_marks(hass)
     assert [m[0] for m in marks] == ["frozen", "cancelled", "cancelled", "planned"]
+    # It stays on “Plans” as 🚫, but searches do not find it
+    await settle(hass, frozen_now)
+    found = await find(hass, filter="#leaf", calendars=[PLANS])
+    assert not any("Pool" in e["summary"] for e in found)
+    assert any("School" in e["summary"] for e in found)
 
     # At 7:00 the mark is done: there is nothing to run; it is not made again
     frozen_now.move_to("2026-10-22T04:00:30+00:00")

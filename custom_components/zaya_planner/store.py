@@ -318,6 +318,49 @@ class PlanManager:
         await self._async_changed()
         return plan
 
+    async def async_restore_by_person(self, uid: str, delta: timedelta) -> Plan | None:
+        """Bring back a plan a person cancelled (saved in the calendar), moved by `delta`.
+
+        Only a plan that never started, and only to a time to come; it is frozen:
+        a person decided.
+        """
+        plan = self.get(uid)
+        if (
+            plan is None
+            or plan.status != PlanStatus.CANCELLED
+            or not plan.by_person
+            or any(step.attempts for step in plan.steps)
+            or plan.start + delta <= dt_util.utcnow()
+        ):
+            return None
+        if delta and plan.origin is None:
+            plan.origin = [step.copy() for step in plan.steps]
+        for step in plan.steps:
+            step.at += delta
+            step.status = StepStatus.PLANNED
+        plan.status = PlanStatus.PLANNED
+        plan.reason = None
+        plan.finished_at = None
+        plan.updated_at = dt_util.utcnow()
+        self.log(
+            message(
+                self.hass, "plan_restored", summary=plan.display_summary, start=local_text(plan.start)
+            )
+        )
+        self.freeze(plan)
+        await self._async_changed()
+        return plan
+
+    async def async_forget_by_person(self, uid: str) -> Plan | None:
+        """Forget that a person cancelled a plan (its event deleted again): its owner decides again."""
+        plan = self.get(uid)
+        if plan is None or plan.status != PlanStatus.CANCELLED or not plan.by_person:
+            return None
+        del self._plans[uid]
+        self.log(message(self.hass, "plan_forgotten", summary=plan.display_summary))
+        await self._async_changed()
+        return plan
+
     async def async_move_by_person(self, uid: str, delta: timedelta) -> Plan | None:
         """Move all steps of a plan that has not started (moved in the calendar).
 
@@ -402,12 +445,18 @@ class PlanManager:
         self.log(text)
 
     async def async_cleanup(self, retention: timedelta) -> int:
-        """Remove finished plans older than the retention period."""
+        """Remove finished plans older than the retention period.
+
+        A plan a person cancelled is kept until its own time is that old: until
+        then its owner must not make it again.
+        """
         limit = dt_util.utcnow() - retention
         old = [
             uid
             for uid, plan in self._plans.items()
-            if not plan.is_open and (plan.finished_at or plan.updated_at) < limit
+            if not plan.is_open
+            and (plan.finished_at or plan.updated_at) < limit
+            and not (plan.by_person and plan.status == PlanStatus.CANCELLED and plan.end >= limit)
         ]
         for uid in old:
             del self._plans[uid]

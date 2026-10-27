@@ -459,6 +459,12 @@
     },
     "one_time_source": {
       "message": "Give the time of a step one way: an entity, an event, or a date and time."
+    },
+    "only_time": {
+      "message": "Only the time of a plan can be changed here: its name and description come from the automation that made it."
+    },
+    "plan_not_restored": {
+      "message": "This plan cannot be brought back: it has started, or the time chosen has passed."
     }
   },
   "device_automation": {

@@ -313,3 +313,105 @@ async def test_what_a_person_decided_stays(
     later = [step("2026-10-21T15:00:00+00:00"), step("2026-10-21T15:30:00+00:00", state="off")]
     plan = await set_plan(hass, later, summary="Lights")
     assert (plan["status"], plan["start"]) == ("planned", "2026-10-21T18:00:00+03:00")
+
+
+async def update_event(client, uid: str, start: str, end: str, **data: Any) -> dict[str, Any]:
+    """Save an event of the “Plans” calendar as a person does; return the answer."""
+    await client.send_json_auto_id(
+        {
+            "type": "calendar/event/update",
+            "entity_id": CALENDAR,
+            "uid": uid,
+            "event": {"dtstart": start, "dtend": end, **data},
+        }
+    )
+    return await client.receive_json()
+
+
+async def delete_event(client, uid: str) -> dict[str, Any]:
+    """Delete an event of the “Plans” calendar as a person does; return the answer."""
+    await client.send_json_auto_id({"type": "calendar/event/delete", "entity_id": CALENDAR, "uid": uid})
+    return await client.receive_json()
+
+
+async def calendar_events(hass: HomeAssistant) -> list[tuple[str, str]]:
+    """Return the events of the “Plans” calendar for two days: (start, summary)."""
+    events = await hass.services.async_call(
+        "calendar",
+        "get_events",
+        {
+            "entity_id": CALENDAR,
+            "start_date_time": "2026-10-21T00:00:00+00:00",
+            "end_date_time": "2026-10-23T00:00:00+00:00",
+        },
+        blocking=True,
+        return_response=True,
+    )
+    return [(e["start"], e["summary"]) for e in events[CALENDAR]["events"]]
+
+
+async def test_a_person_cancels_and_brings_back(
+    hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now, hass_ws_client
+) -> None:
+    """Deleted: shown as 🚫 and not made again; saved: back and frozen; deleted again: forgotten."""
+    uid = (await set_plan(hass, LIGHTS, summary="Lights"))["uid"]
+    client = await hass_ws_client(hass)
+
+    # Saved as it is: nothing changes
+    assert (await update_event(client, uid, "2026-10-21T16:00:00+03:00", "2026-10-21T16:30:00+03:00", summary="Lights"))["success"]
+    assert (await get_plans(hass))[0]["status"] == "planned"
+    # The name and the description are the plan's
+    answer = await update_event(
+        client, uid, "2026-10-21T16:00:00+03:00", "2026-10-21T16:30:00+03:00", description="Status: done"
+    )
+    assert not answer["success"]
+    assert (await get_plans(hass))[0]["status"] == "planned"
+
+    # Deleted: cancelled, still on the calendar, not made again
+    assert (await delete_event(client, uid))["success"]
+    assert await calendar_events(hass) == [("2026-10-21T16:00:00+03:00", "🚫 Lights")]
+    await set_plan(hass, LIGHTS, summary="Lights")
+    assert [p["status"] for p in await get_plans(hass)] == ["cancelled"]
+
+    # Saved: back, at the time saved, and frozen
+    assert (await update_event(client, uid, "2026-10-21T17:00:00+03:00", "2026-10-21T17:30:00+03:00", summary="🚫 Lights"))["success"]
+    plan = (await get_plans(hass))[0]
+    assert (plan["status"], plan["start"]) == ("frozen", "2026-10-21T17:00:00+03:00")
+    # Its owner plans the same as before: the person's plan stays
+    await set_plan(hass, LIGHTS, summary="Lights")
+    assert [(p["status"], p["start"]) for p in await get_plans(hass)] == [
+        ("frozen", "2026-10-21T17:00:00+03:00")
+    ]
+
+    # Deleted, then deleted again: forgotten; its owner makes it again
+    assert (await delete_event(client, uid))["success"]
+    assert (await delete_event(client, uid))["success"]
+    assert await get_plans(hass) == []
+    assert await calendar_events(hass) == []
+    plan = await set_plan(hass, LIGHTS, summary="Lights")
+    assert (plan["status"], plan["start"]) == ("planned", "2026-10-21T16:00:00+03:00")
+
+    # Too late to bring back
+    assert (await delete_event(client, plan["uid"]))["success"]
+    frozen_now.move_to("2026-10-21T13:10:00+00:00")
+    answer = await update_event(
+        client, plan["uid"], "2026-10-21T16:00:00+03:00", "2026-10-21T16:30:00+03:00"
+    )
+    assert not answer["success"]
+
+
+async def test_a_cancelled_plan_is_kept_until_its_time(
+    hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now, hass_ws_client
+) -> None:
+    """Cancelled by a person a week ahead: kept, so that its owner does not make it again."""
+    later = [step("2026-10-26T13:00:00+00:00"), step("2026-10-26T13:30:00+00:00", state="off")]
+    uid = (await set_plan(hass, later, summary="Lights"))["uid"]
+    client = await hass_ws_client(hass)
+    assert (await delete_event(client, uid))["success"]
+
+    # Four days on: older than the retention of 3 days, but its time has not come
+    await move_to(hass, frozen_now, "2026-10-25T12:00:00+00:00")
+    assert [p["status"] for p in await get_plans(hass)] == ["cancelled"]
+    # Three days after its time: removed
+    await move_to(hass, frozen_now, "2026-10-29T14:00:00+00:00")
+    assert await get_plans(hass) == []

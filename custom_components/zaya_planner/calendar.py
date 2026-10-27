@@ -3,6 +3,11 @@
 A person may delete an event (the plan is cancelled, even a frozen or running
 one) or move it (all steps of a plan that has not started move with it, and it
 is frozen). What a person decided, its owner does not make again.
+
+A plan a person cancelled stays on the calendar (🚫): saving its event brings
+it back (frozen, at the time saved); deleting it again forgets the decision, and
+its owner decides again. Only the time of an event can be changed: its name and
+description are the plan's.
 """
 
 from __future__ import annotations
@@ -36,6 +41,8 @@ STATUS_ICONS: dict[PlanStatus, str] = {
     PlanStatus.RUNNING: "⏳",
     PlanStatus.DONE: "✅",
     PlanStatus.FAILED: "❌",
+    # Only plans a person cancelled are shown
+    PlanStatus.CANCELLED: "🚫",
 }
 
 
@@ -52,11 +59,18 @@ def _event_end(plan: Plan) -> datetime:
     return max(plan.end, plan.start + EVENT_DURATION)
 
 
-class PlansCalendar(ZayaPlannerEntity, CalendarEntity):
-    """Plans: planned, frozen, running and recently finished.
+def is_shown(plan: Plan) -> bool:
+    """Return True for a plan on the calendar: any but those cancelled by their owner."""
+    return plan.status != PlanStatus.CANCELLED or plan.by_person
 
-    Cancelled plans are not shown: a calendar does not return cancelled events.
-    """
+
+def _lines(text: str | None) -> list[str]:
+    """Return the lines of a text as compared: stripped, no empty ones."""
+    return [line.strip() for line in (text or "").splitlines() if line.strip()]
+
+
+class PlansCalendar(ZayaPlannerEntity, CalendarEntity):
+    """Plans: planned, frozen, running, recently finished, and cancelled by a person."""
 
     _entity_platform = "calendar"
     _attr_supported_features = (
@@ -89,7 +103,7 @@ class PlansCalendar(ZayaPlannerEntity, CalendarEntity):
         return [
             event
             for plan in self.manager.plans
-            if plan.status != PlanStatus.CANCELLED
+            if is_shown(plan)
             for event in self._events(plan)
             if event.start < end_date and event.end > start_date
         ]
@@ -101,8 +115,16 @@ class PlansCalendar(ZayaPlannerEntity, CalendarEntity):
         recurrence_id: str | None = None,
         recurrence_range: str | None = None,
     ) -> None:
-        """A person cancels a plan (deleting any of its events)."""
-        if await self.manager.async_cancel_by_person(uid.split(":")[0]) is None:
+        """A person cancels a plan (deleting any of its events), or forgets having cancelled it."""
+        plan_uid = uid.split(":")[0]
+        plan = self.manager.get(plan_uid)
+        if plan is not None and plan.status == PlanStatus.CANCELLED:
+            if (done := await self.manager.async_forget_by_person(plan_uid)) is not None:
+                # Its owner decides again now, not at the next quarter of an hour
+                self.entry.runtime_data.time_to_plan.async_fire()
+        else:
+            done = await self.manager.async_cancel_by_person(plan_uid)
+        if done is None:
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="plan_not_open")
 
     @override
@@ -113,16 +135,35 @@ class PlansCalendar(ZayaPlannerEntity, CalendarEntity):
         recurrence_id: str | None = None,
         recurrence_range: str | None = None,
     ) -> None:
-        """A person moves a plan: all its steps move by as much as the moved event."""
+        """A person moves a plan, or brings back one they cancelled (🚫).
+
+        All steps move by as much as the moved event. Saved without a new time,
+        a plan stays as it is; a cancelled one comes back.
+        """
         plan_uid, _, index = uid.partition(":")
         plan = self.manager.get(plan_uid)
         start = event.get("dtstart")
-        if plan is None or not isinstance(start, (date, datetime)):
+        if plan is None or not is_shown(plan) or not isinstance(start, (date, datetime)):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="plan_not_open")
+        shown = next((item for item in self._events(plan) if item.uid == uid), None)
+        if shown is not None and (
+            ("summary" in event and _lines(event["summary"]) != _lines(shown.summary))
+            or ("description" in event and _lines(event["description"]) != _lines(shown.description))
+        ):
+            # The name and the description are the plan's: a change would be lost
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="only_time")
         moved = plan.steps[int(index)].at if index else plan.start
         if not isinstance(start, datetime):
             start = datetime.combine(start, moved.time())
         delta = as_aware(start) - moved
+        if plan.status == PlanStatus.CANCELLED:
+            if await self.manager.async_restore_by_person(plan_uid, delta) is None:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN, translation_key="plan_not_restored"
+                )
+            return
+        if not delta:
+            return
         if await self.manager.async_move_by_person(plan_uid, delta) is None:
             raise ServiceValidationError(
                 translation_domain=DOMAIN, translation_key="plan_started"
@@ -152,7 +193,7 @@ class PlansCalendar(ZayaPlannerEntity, CalendarEntity):
                 uid=f"{plan.uid}:{index}",
             )
             for index, step in enumerate(plan.steps)
-            if step.status != StepStatus.CANCELLED
+            if step.status != StepStatus.CANCELLED or plan.status == PlanStatus.CANCELLED
         ]
 
     def _step_summary(self, step: Step) -> str:
