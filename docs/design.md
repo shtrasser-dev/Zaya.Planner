@@ -344,13 +344,13 @@ are the user's.
 
 ## 10. Open questions
 
-- “Time of an event” and “minus attribute” in : calendar sensors do it better; remove?
+- “Time of an event” and “minus attribute” in `add_step`: calendar sensors do it better; remove?
 - Silent “nothing planned” (an unavailable or renamed entity, an end before the start, a
   person's decision): a way to see why an automation planned nothing (a sensor of planning
   errors, or one logbook line).
-- One owner rule:  keeps one next plan, windows and marks are sets. Worth unifying
+- One owner rule: `set_plan` keeps one next plan, windows and marks are sets. Worth unifying
   only when a planning module needs several plans in one run.
-- Texts of the logbook and of plan descriptions are in , not in the translation
+- Texts of the logbook and of plan descriptions are in `messages.py`, not in the translation
   files; labels of plan descriptions (“Status:”) could clash with a key of the dictionary.
 
 ## 11. Later
