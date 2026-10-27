@@ -94,9 +94,9 @@ ATTR_DISPLAY: Final = "display"
 DISPLAY_SPAN: Final = "span"
 DISPLAY_STEPS: Final = "steps"
 # Where the time of a step comes from: a date and time (at), the time an entity
-# shows (at_entity), or the next event of the chosen calendars that fits a
-# filter (event, minus the duration in the attribute `subtract`); then moved by
-# `offset` minutes (minus: earlier)
+# shows (at_entity), or the start of the next event of the chosen calendars that
+# fits a filter (event); then moved by `offset` minutes (minus: earlier). An
+# offset from an attribute of the event is the work of a calendar sensor
 ATTR_AT_ENTITY: Final = "at_entity"
 ATTR_EVENT: Final = "event"
 ATTR_OFFSET: Final = "offset"
@@ -183,7 +183,7 @@ ATTR_END: Final = "end"
 ATTR_FIRST_OF_DAY: Final = "first_of_day"
 # Only events whose time (start, or start minus the attribute) has not come yet
 ATTR_ONLY_FUTURE: Final = "only_future"
-# The time of an event is its start minus the duration in this attribute
+# find_events: the time of an event is its start minus the duration in this attribute
 ATTR_SUBTRACT: Final = "subtract"
 ATTR_EVENTS: Final = "events"
 

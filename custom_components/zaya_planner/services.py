@@ -96,7 +96,6 @@ STEP_FIELDS = {
     probatio.Optional(ATTR_AT): probatio.Any(None, "", cv.datetime),
     probatio.Optional(ATTR_AT_ENTITY): probatio.Any(None, "", cv.entity_id),
     probatio.Optional(ATTR_EVENT): probatio.Any(None, cv.string),
-    probatio.Optional(ATTR_SUBTRACT): probatio.Any(None, cv.string),
     # Minutes later (plus) or earlier (minus)
     probatio.Optional(ATTR_OFFSET, default=0): probatio.Coerce(int),
     # What: devices to turn on/off, or an action with data
@@ -284,21 +283,14 @@ def _entity_times(hass: HomeAssistant, entity_id: str) -> list[tuple[datetime, d
     return [] if at is None else [(at, dict(state.attributes))]
 
 
-async def _async_event_time(
-    hass: HomeAssistant, text: str, subtract: str | None
-) -> datetime | None:
-    """Return the time of the next event that fits the filter (minus the attribute)."""
+async def _async_event_time(hass: HomeAssistant, text: str) -> datetime | None:
+    """Return the start of the next event that fits the filter."""
     reader = _get_entry(hass).runtime_data.events
     event_filter = Filter.parse(text)
-    unknown = event_filter.unknown_words(reader.dictionary)
-    if subtract and reader.dictionary.key(subtract) is None:
-        unknown.append(subtract)
-    if unknown:
+    if unknown := event_filter.unknown_words(reader.dictionary):
         raise _error("unknown_filter_words", words=", ".join(unknown))
     now = dt_util.utcnow()
-    events = await reader.async_find(
-        event_filter, now, now + EVENTS_HORIZON, only_future=True, subtract=subtract
-    )
+    events = await reader.async_find(event_filter, now, now + EVENTS_HORIZON, only_future=True)
     if not events or (at := events[0].at) is None:
         return None
     if not isinstance(at, datetime):
@@ -332,7 +324,7 @@ async def _async_step(hass: HomeAssistant, data: dict[str, Any]) -> Step | None:
     elif sources[0] == ATTR_AT_ENTITY:
         at = _entity_time(hass, data[ATTR_AT_ENTITY])
     else:
-        at = await _async_event_time(hass, data[ATTR_EVENT], data.get(ATTR_SUBTRACT))
+        at = await _async_event_time(hass, data[ATTR_EVENT])
     if at is None:
         # The entity shows no time, or there is no such event: no step
         return None

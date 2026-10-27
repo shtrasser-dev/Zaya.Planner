@@ -179,11 +179,7 @@
         },
         "event": {
           "name": "Event",
-          "description": "The next event of the chosen calendars that fits this filter: #tag, Key: value, Key."
-        },
-        "subtract": {
-          "name": "Minus attribute",
-          "description": "A key whose value is a duration (Travel: 40:00): the time is the event's start minus it."
+          "description": "The start of the next event of the chosen calendars that fits the filter: #tag, !#tag, Key: value, Key. For a time worked out from an attribute (travel time), use a calendar sensor in “Time of”."
         },
         "at": {
           "name": "Date and time",

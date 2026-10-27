@@ -139,10 +139,6 @@ add_step:
           example: "#leaf #take_there"
           selector:
             text:
-        subtract:
-          example: Travel
-          selector:
-            text:
     date_time:
       collapsed: true
       fields:

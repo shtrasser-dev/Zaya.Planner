@@ -734,13 +734,13 @@ async def test_step_at_an_event(
     calendars: dict[str, FakeCalendar],
     setup_entry: MockConfigEntry,
 ) -> None:
-    """A step at the next fitting event: its start minus the travel time, minus 30 minutes."""
-    data = {"owner": "automation.charging", "event": "#leaf #отвезти", "subtract": "В пути"}
+    """A step at the next fitting event: its start, 70 minutes earlier."""
+    data = {"owner": "automation.charging", "event": "#leaf #отвезти"}
     context = Context()
     await hass.services.async_call(
         DOMAIN,
         "add_step",
-        {**data, "offset": -30, "devices": ["switch.charger"], "state": "off"},
+        {**data, "offset": -70, "devices": ["switch.charger"], "state": "off"},
         blocking=True,
         context=context,
     )
@@ -756,8 +756,18 @@ async def test_step_at_an_event(
         DOMAIN, "set_plan", {"owner": "automation.charging"}, blocking=True, context=context
     )
     plan = await next_plan(hass, "automation.charging")
-    # School at 8:00 (Moscow), 40 minutes away, 30 minutes to spare
+    # School at 8:00 (Moscow)
     assert [s["at"] for s in plan["steps"]] == ["2026-10-22T06:50:00+03:00"]
+
+    # “Minus attribute” is gone: a calendar sensor does that
+    with pytest.raises(Exception):
+        await hass.services.async_call(
+            DOMAIN,
+            "add_step",
+            {**data, "subtract": "В пути", "devices": ["switch.charger"], "state": "on"},
+            blocking=True,
+            context=context,
+        )
 
 
 @pytest.mark.parametrize(

@@ -243,8 +243,8 @@ For other plans, the building blocks:
 
 - **`zaya_planner.add_step`**: adds a step to the plan being made **in this run**. Its time is one
   of: **Time of** an entity (`at_entity`: Sun “Next sunset”, a timestamp sensor, a date-and-time
-  helper), the **time of an event** (`event` filter, `subtract` an attribute: the next fitting event
-  of the chosen calendars), or a **date and time** (`at`, also a template); then **Offset** minutes
+  helper), the **start of an event** (`event` filter: the next fitting event of the chosen
+  calendars; for a time worked out from an attribute, use a calendar sensor), or a **date and time** (`at`, also a template); then **Offset** minutes
   (minus: earlier). What: **Devices** + **Turn on / Turn off**, or a step script (`action` +
   `data`). Without a time (no such event, the sensor shows none) the step is left out. Steps may
   be added in conditions and loops, also by scripts the automation calls.
