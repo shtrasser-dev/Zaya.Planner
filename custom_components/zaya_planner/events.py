@@ -270,7 +270,11 @@ class EventReader:
         self._async_follow()
         now = dt_util.now()
         errors: list[EventError] = []
-        events = await self.async_events(now, now + EVENTS_HORIZON, errors=errors)
+        # From the start of the day: the first event of today stays the first
+        # once it is over (calendar sensors that take only the first of a day)
+        events = await self.async_events(
+            dt_util.start_of_local_day(), now + EVENTS_HORIZON, errors=errors
+        )
         for event in events:
             errors.extend(
                 EventError(

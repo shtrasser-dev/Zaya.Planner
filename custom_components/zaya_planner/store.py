@@ -268,8 +268,11 @@ class PlanManager:
                     start=local_text(plan.start),
                 )
             )
+        now = dt_util.utcnow()
         for plan in self.find(owner=owner, statuses=[PlanStatus.PLANNED]):
-            if plan.uid not in kept:
+            # A plan whose time has come is left to run: its time may be gone
+            # from the owner's entity just because it has come
+            if plan.uid not in kept and plan.start > now:
                 self._close(plan, PlanStatus.CANCELLED, message(self.hass, "reason_owner"))
                 self.log(message(self.hass, "plan_cancelled", summary=plan.display_summary))
                 changed = True

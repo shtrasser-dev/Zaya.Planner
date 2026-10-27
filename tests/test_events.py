@@ -651,6 +651,39 @@ async def test_plan_marks_from_several_sensors(
     assert [m[0] for m in marks] == ["planned", "cancelled", "planned", "cancelled"]
 
 
+async def test_first_of_the_day_stays_first(
+    hass: HomeAssistant,
+    calendars: dict[str, FakeCalendar],
+    config_entry: MockConfigEntry,
+    frozen_now,
+) -> None:
+    """Once the morning trip is over, the afternoon one does not become the first of the day."""
+    calendars["masha"].set(
+        [
+            event("Maths", "2026-10-22T08:00:00", "2026-10-22T08:35:00", LESSON, "School"),
+            event("Football", "2026-10-22T17:00:00", "2026-10-22T18:00:00", LESSON),
+        ]
+    )
+    await setup_sensors(
+        hass,
+        config_entry,
+        frozen_now,
+        calendar_sensor(
+            tags=["leaf", "отвезти"], calendars=["calendar.masha"], horizon={"days": 2}
+        ),
+    )
+    assert hass.states.get("sensor.vyezd_leaf").state == "2026-10-22T04:20:00+00:00"
+
+    # Thursday 8:40: the lesson is over; football is not the first of the day
+    frozen_now.move_to("2026-10-22T05:40:00+00:00")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    await settle(hass, frozen_now)
+    state = hass.states.get("sensor.vyezd_leaf")
+    assert state.state == "unknown"
+    assert state.attributes["times"] == []
+
+
 async def test_plan_window_for_each_time(
     hass: HomeAssistant,
     calendars: dict[str, FakeCalendar],

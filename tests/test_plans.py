@@ -6,6 +6,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_capture_events,
+    async_fire_time_changed,
 )
 
 from custom_components.zaya_planner.config_flow import DEFAULT_OPTIONS
@@ -318,3 +319,27 @@ async def test_plan_marks_from_an_entity(
     hass.states.async_set("sensor.sun_next_rising", "unknown")
     await call(hass, "plan_marks", data)
     assert await next_plan(hass, "automation.dawn") is None
+
+
+async def test_plan_whose_time_has_come_is_not_cancelled(
+    hass: HomeAssistant, setup_entry: MockConfigEntry, frozen_now
+) -> None:
+    """The entity moves on to the next time as the mark's time comes: the mark still runs."""
+    hass.states.async_set("sensor.trip", "2026-10-21T13:00:00+00:00")
+    data = {"owner": "automation.trips", "time_entity": "sensor.trip", "summary": "Trip"}
+    await call(hass, "plan_marks", data)
+
+    # 16:00 has come, the planner has not run it yet; the sensor shows the next trip
+    frozen_now.move_to("2026-10-21T13:00:00+00:00")
+    hass.states.async_set("sensor.trip", "2026-10-22T13:00:00+00:00")
+    await call(hass, "plan_marks", data)
+    plans = await get_plans(hass, owner="automation.trips")
+    assert [(p["status"], p["start"]) for p in plans] == [
+        ("planned", "2026-10-21T16:00:00+03:00"),
+        ("planned", "2026-10-22T16:00:00+03:00"),
+    ]
+
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    plans = await get_plans(hass, owner="automation.trips")
+    assert [p["status"] for p in plans] == ["done", "planned"]
